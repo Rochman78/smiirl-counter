@@ -1,53 +1,58 @@
 const express = require("express");
 const app = express();
 
-const CLIENT_ID = process.env.CLIENT_ID;
-const CLIENT_SECRET = process.env.CLIENT_SECRET;
-
-function getShopDomains() {
-  const shops = [];
-  for (let i = 1; i <= 20; i++) {
-    const domain = process.env["SHOP_" + i];
-    if (domain) shops.push(domain);
+function getShops() {
+  var shops = [];
+  for (var i = 1; i <= 20; i++) {
+    var domain = process.env["SHOP_" + i];
+    var clientId = process.env["SHOP_" + i + "_CLIENT_ID"];
+    var clientSecret = process.env["SHOP_" + i + "_CLIENT_SECRET"];
+    if (domain && clientId && clientSecret) {
+      shops.push({
+        domain: domain,
+        clientId: clientId,
+        clientSecret: clientSecret
+      });
+    }
   }
   return shops;
 }
 
 var tokenCache = {};
 
-async function getAccessToken(shopDomain) {
+async function getAccessToken(shop) {
   var now = Date.now();
-  var cached = tokenCache[shopDomain];
+  var cached = tokenCache[shop.domain];
   if (cached && now - cached.obtainedAt < 23 * 60 * 60 * 1000) {
     return cached.token;
   }
 
-  var url = "https://" + shopDomain + "/admin/oauth/access_token";
+  var url = "https://" + shop.domain + "/admin/oauth/access_token";
   var response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       grant_type: "client_credentials",
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
+      client_id: shop.clientId,
+      client_secret: shop.clientSecret,
     }),
   });
 
   if (!response.ok) {
     var text = await response.text();
-    console.error("Erreur token pour " + shopDomain + ": " + response.status + " - " + text);
+    console.error("Erreur token pour " + shop.domain + ": " + response.status + " - " + text);
     return null;
   }
 
   var data = await response.json();
   var token = data.access_token;
-  tokenCache[shopDomain] = { token: token, obtainedAt: now };
-  console.log("Token obtenu pour " + shopDomain);
+  tokenCache[shop.domain] = { token: token, obtainedAt: now };
+  console.log("Token obtenu pour " + shop.domain);
   return token;
 }
 
-async function getShopRevenue(shopDomain) {
-  var token = await getAccessToken(shopDomain);
+async function getShopRevenue(shop) {
+  var token = await getAccessToken(shop);
   if (!token) return 0;
 
   var now = new Date();
@@ -64,7 +69,7 @@ async function getShopRevenue(shopDomain) {
     if (nextPageUrl) {
       url = nextPageUrl;
     } else {
-      url = "https://" + shopDomain + "/admin/api/2024-01/orders.json" +
+      url = "https://" + shop.domain + "/admin/api/2024-01/orders.json" +
         "?status=any" +
         "&financial_status=paid,partially_refunded" +
         "&created_at_min=" + startOfYear +
@@ -81,7 +86,7 @@ async function getShopRevenue(shopDomain) {
       });
 
       if (!response.ok) {
-        console.error("Erreur " + response.status + " pour " + shopDomain);
+        console.error("Erreur " + response.status + " pour " + shop.domain);
         break;
       }
 
@@ -99,12 +104,12 @@ async function getShopRevenue(shopDomain) {
         if (nextMatch) nextPageUrl = nextMatch[1];
       }
     } catch (error) {
-      console.error("Erreur pour " + shopDomain + ": " + error.message);
+      console.error("Erreur pour " + shop.domain + ": " + error.message);
       break;
     }
   }
 
-  console.log(shopDomain + ": " + totalRevenue.toFixed(2) + " EUR");
+  console.log(shop.domain + ": " + totalRevenue.toFixed(2) + " EUR");
   return totalRevenue;
 }
 
@@ -118,7 +123,7 @@ async function getTotalRevenue() {
     return cachedNumber;
   }
 
-  var shops = getShopDomains();
+  var shops = getShops();
   if (shops.length === 0) {
     console.error("Aucune boutique configuree !");
     return 0;
@@ -148,11 +153,11 @@ app.get("/", async function (req, res) {
 });
 
 app.get("/debug", async function (req, res) {
-  var shops = getShopDomains();
+  var shops = getShops();
   var results = [];
   for (var i = 0; i < shops.length; i++) {
     var revenue = await getShopRevenue(shops[i]);
-    results.push({ domain: shops[i], revenue: revenue.toFixed(2) });
+    results.push({ domain: shops[i].domain, revenue: revenue.toFixed(2) });
   }
   var total = 0;
   for (var j = 0; j < results.length; j++) {
@@ -168,7 +173,7 @@ app.get("/debug", async function (req, res) {
 
 var PORT = process.env.PORT || 3000;
 app.listen(PORT, function () {
-  var shops = getShopDomains();
+  var shops = getShops();
   console.log("Serveur SMIIRL demarre sur le port " + PORT);
   console.log(shops.length + " boutique(s) configuree(s)");
 });
