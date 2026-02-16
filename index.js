@@ -165,4 +165,4 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   const shops = getShopDomains();
   console.log(`Serveur SMIIRL demarre sur le port ${PORT}`);
-  console.log(`${shops.length} boutique(s) configuree(s)`
+  console.log(`${shops.length} boutique(s) configuree(s)`);
