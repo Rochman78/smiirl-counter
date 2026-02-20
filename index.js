@@ -572,7 +572,8 @@ var objectifAlertSent = false;
 
 function getTodayKey() {
   var now = new Date();
-  return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+  var paris = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Paris" }));
+  return paris.getFullYear() + "-" + String(paris.getMonth() + 1).padStart(2, "0") + "-" + String(paris.getDate()).padStart(2, "0");
 }
 
 function resetDailyStatsIfNeeded() {
