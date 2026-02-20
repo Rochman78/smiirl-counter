@@ -1,5 +1,6 @@
 const express = require("express");
 const app = express();
+app.use(express.json());
 
 // ============================================================
 // TELEGRAM
@@ -8,20 +9,55 @@ const app = express();
 var TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 var TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-async function sendTelegram(message) {
+async function sendTelegram(message, buttons) {
   if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) return;
   try {
+    var body = {
+      chat_id: TELEGRAM_CHAT_ID,
+      text: message,
+      parse_mode: "HTML"
+    };
+    if (buttons) {
+      body.reply_markup = JSON.stringify({ inline_keyboard: buttons });
+    }
     await fetch("https://api.telegram.org/bot" + TELEGRAM_TOKEN + "/sendMessage", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: TELEGRAM_CHAT_ID,
-        text: message,
-        parse_mode: "HTML"
-      })
+      body: JSON.stringify(body)
     });
   } catch (error) {
     console.error("Erreur Telegram: " + error.message);
+  }
+}
+
+async function answerCallback(callbackId) {
+  try {
+    await fetch("https://api.telegram.org/bot" + TELEGRAM_TOKEN + "/answerCallbackQuery", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callback_query_id: callbackId })
+    });
+  } catch (error) {}
+}
+
+async function editMessage(chatId, messageId, text, buttons) {
+  try {
+    var body = {
+      chat_id: chatId,
+      message_id: messageId,
+      text: text,
+      parse_mode: "HTML"
+    };
+    if (buttons) {
+      body.reply_markup = JSON.stringify({ inline_keyboard: buttons });
+    }
+    await fetch("https://api.telegram.org/bot" + TELEGRAM_TOKEN + "/editMessageText", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+  } catch (error) {
+    console.error("Erreur edit message: " + error.message);
   }
 }
 
@@ -37,12 +73,7 @@ function getShops() {
     var clientSecret = process.env["SHOP_" + i + "_CLIENT_SECRET"];
     var name = process.env["SHOP_" + i + "_NAME"] || domain;
     if (domain && clientId && clientSecret) {
-      shops.push({
-        domain: domain,
-        clientId: clientId,
-        clientSecret: clientSecret,
-        name: name
-      });
+      shops.push({ domain: domain, clientId: clientId, clientSecret: clientSecret, name: name });
     }
   }
   return shops;
@@ -56,95 +87,49 @@ async function getShopifyAccessToken(shop) {
   if (cached && now - cached.obtainedAt < 23 * 60 * 60 * 1000) {
     return cached.token;
   }
-
   var url = "https://" + shop.domain + "/admin/oauth/access_token";
   var response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      grant_type: "client_credentials",
-      client_id: shop.clientId,
-      client_secret: shop.clientSecret,
-    }),
+    body: JSON.stringify({ grant_type: "client_credentials", client_id: shop.clientId, client_secret: shop.clientSecret }),
   });
-
   if (!response.ok) {
     var text = await response.text();
-    console.error("Erreur token Shopify pour " + shop.domain + ": " + response.status + " - " + text);
+    console.error("Erreur token Shopify " + shop.domain + ": " + response.status + " - " + text);
     return null;
   }
-
   var data = await response.json();
-  var token = data.access_token;
-  shopifyTokenCache[shop.domain] = { token: token, obtainedAt: now };
-  console.log("Token Shopify obtenu pour " + shop.domain);
-  return token;
+  shopifyTokenCache[shop.domain] = { token: data.access_token, obtainedAt: now };
+  return data.access_token;
 }
 
 async function getShopifyOrders(shop, since) {
   var token = await getShopifyAccessToken(shop);
   if (!token) return [];
-
   var allOrders = [];
   var nextPageUrl = null;
   var isFirstRequest = true;
-
   while (isFirstRequest || nextPageUrl) {
     isFirstRequest = false;
-
     var url;
-    if (nextPageUrl) {
-      url = nextPageUrl;
-    } else {
+    if (nextPageUrl) { url = nextPageUrl; }
+    else {
       url = "https://" + shop.domain + "/admin/api/2024-01/orders.json" +
-        "?status=any" +
-        "&financial_status=paid,partially_refunded" +
-        "&created_at_min=" + since +
-        "&fields=id,total_price,created_at,name" +
-        "&limit=250";
+        "?status=any&financial_status=paid,partially_refunded&created_at_min=" + since +
+        "&fields=id,total_price,created_at,name&limit=250";
     }
-
     try {
-      var response = await fetch(url, {
-        headers: {
-          "X-Shopify-Access-Token": token,
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        console.error("Erreur Shopify " + response.status + " pour " + shop.domain);
-        break;
-      }
-
+      var response = await fetch(url, { headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" } });
+      if (!response.ok) { console.error("Erreur Shopify " + response.status + " " + shop.domain); break; }
       var data = await response.json();
       var orders = data.orders || [];
-
-      for (var j = 0; j < orders.length; j++) {
-        allOrders.push(orders[j]);
-      }
-
+      for (var j = 0; j < orders.length; j++) { allOrders.push(orders[j]); }
       var linkHeader = response.headers.get("link");
       nextPageUrl = null;
-      if (linkHeader) {
-        var nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
-        if (nextMatch) nextPageUrl = nextMatch[1];
-      }
-    } catch (error) {
-      console.error("Erreur Shopify pour " + shop.domain + ": " + error.message);
-      break;
-    }
+      if (linkHeader) { var m = linkHeader.match(/<([^>]+)>;\s*rel="next"/); if (m) nextPageUrl = m[1]; }
+    } catch (error) { console.error("Erreur Shopify " + shop.domain + ": " + error.message); break; }
   }
-
   return allOrders;
-}
-
-function getShopifyRevenue(orders) {
-  var total = 0;
-  for (var i = 0; i < orders.length; i++) {
-    total += parseFloat(orders[i].total_price || 0);
-  }
-  return total;
 }
 
 // ============================================================
@@ -161,14 +146,7 @@ function getAmazonAccounts() {
     var endpoint = process.env["AMAZON_" + i + "_ENDPOINT"] || "https://sellingpartnerapi-eu.amazon.com";
     var name = process.env["AMAZON_" + i + "_NAME"] || "Amazon " + i;
     if (clientId && clientSecret && refreshToken) {
-      accounts.push({
-        name: name,
-        clientId: clientId,
-        clientSecret: clientSecret,
-        refreshToken: refreshToken,
-        marketplace: marketplace,
-        endpoint: endpoint
-      });
+      accounts.push({ name: name, clientId: clientId, clientSecret: clientSecret, refreshToken: refreshToken, marketplace: marketplace, endpoint: endpoint });
     }
   }
   return accounts;
@@ -179,99 +157,191 @@ var amazonTokenCache = {};
 async function getAmazonAccessToken(account) {
   var now = Date.now();
   var cached = amazonTokenCache[account.name];
-  if (cached && now - cached.obtainedAt < 50 * 60 * 1000) {
-    return cached.token;
-  }
-
+  if (cached && now - cached.obtainedAt < 50 * 60 * 1000) { return cached.token; }
   var response = await fetch("https://api.amazon.com/auth/o2/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: "grant_type=refresh_token" +
-      "&client_id=" + encodeURIComponent(account.clientId) +
-      "&client_secret=" + encodeURIComponent(account.clientSecret) +
-      "&refresh_token=" + encodeURIComponent(account.refreshToken),
+    body: "grant_type=refresh_token&client_id=" + encodeURIComponent(account.clientId) + "&client_secret=" + encodeURIComponent(account.clientSecret) + "&refresh_token=" + encodeURIComponent(account.refreshToken),
   });
-
-  if (!response.ok) {
-    var text = await response.text();
-    console.error("Erreur token Amazon " + account.name + ": " + response.status + " - " + text);
-    return null;
-  }
-
+  if (!response.ok) { var text = await response.text(); console.error("Erreur token Amazon " + account.name + ": " + text); return null; }
   var data = await response.json();
-  var token = data.access_token;
-  amazonTokenCache[account.name] = { token: token, obtainedAt: now };
-  console.log("Token Amazon obtenu pour " + account.name);
-  return token;
+  amazonTokenCache[account.name] = { token: data.access_token, obtainedAt: now };
+  return data.access_token;
 }
 
 async function getAmazonOrders(account, since) {
   var token = await getAmazonAccessToken(account);
   if (!token) return [];
-
   var allOrders = [];
   var nextToken = null;
   var isFirstRequest = true;
-
   while (isFirstRequest || nextToken) {
     isFirstRequest = false;
-
-    var url = account.endpoint + "/orders/v0/orders" +
-      "?MarketplaceIds=" + account.marketplace +
-      "&CreatedAfter=" + encodeURIComponent(since) +
-      "&OrderStatuses=Shipped,Unshipped" +
-      "&MaxResultsPerPage=100";
-
-    if (nextToken) {
-      url += "&NextToken=" + encodeURIComponent(nextToken);
-    }
-
+    var url = account.endpoint + "/orders/v0/orders?MarketplaceIds=" + account.marketplace +
+      "&CreatedAfter=" + encodeURIComponent(since) + "&OrderStatuses=Shipped,Unshipped&MaxResultsPerPage=100";
+    if (nextToken) { url += "&NextToken=" + encodeURIComponent(nextToken); }
     try {
-      var response = await fetch(url, {
-        headers: {
-          "x-amz-access-token": token,
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        var text = await response.text();
-        console.error("Erreur Amazon " + response.status + " pour " + account.name + ": " + text);
-        break;
-      }
-
+      var response = await fetch(url, { headers: { "x-amz-access-token": token, "Content-Type": "application/json" } });
+      if (!response.ok) { console.error("Erreur Amazon " + response.status + " " + account.name); break; }
       var data = await response.json();
       var orders = data.payload && data.payload.Orders ? data.payload.Orders : [];
-
-      for (var j = 0; j < orders.length; j++) {
-        allOrders.push(orders[j]);
-      }
-
-      nextToken = null;
-      if (data.payload && data.payload.NextToken) {
-        nextToken = data.payload.NextToken;
-      }
-    } catch (error) {
-      console.error("Erreur Amazon pour " + account.name + ": " + error.message);
-      break;
-    }
+      for (var j = 0; j < orders.length; j++) { allOrders.push(orders[j]); }
+      nextToken = data.payload && data.payload.NextToken ? data.payload.NextToken : null;
+    } catch (error) { console.error("Erreur Amazon " + account.name + ": " + error.message); break; }
   }
-
   return allOrders;
 }
 
-function getAmazonRevenue(orders) {
-  var total = 0;
-  for (var i = 0; i < orders.length; i++) {
-    if (orders[i].OrderTotal && orders[i].OrderTotal.Amount) {
-      total += parseFloat(orders[i].OrderTotal.Amount);
+// ============================================================
+// HELPERS
+// ============================================================
+
+function formatMoney(amount) {
+  return Math.round(amount).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
+function getPeriodDates(period) {
+  var now = new Date();
+  var start, end;
+  if (period === "d") {
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    end = now;
+  } else if (period === "h") {
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  } else if (period === "m") {
+    start = new Date(now.getFullYear(), now.getMonth(), 1);
+    end = now;
+  } else if (period === "a") {
+    start = new Date(now.getFullYear(), 0, 1);
+    end = now;
+  } else {
+    start = new Date(2020, 0, 1);
+    end = now;
+  }
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
+function getPeriodLabel(period) {
+  if (period === "d") return "Aujourd'hui";
+  if (period === "h") return "Hier";
+  if (period === "m") return "Ce mois";
+  if (period === "a") return "Cette annee";
+  return "Total";
+}
+
+async function getStatsForShop(shopName, period) {
+  var dates = getPeriodDates(period);
+  var shops = getShops();
+  var amazonAccounts = getAmazonAccounts();
+  var revenue = 0;
+  var orderCount = 0;
+
+  for (var i = 0; i < shops.length; i++) {
+    if (shops[i].name === shopName) {
+      var orders = await getShopifyOrders(shops[i], dates.start);
+      for (var j = 0; j < orders.length; j++) {
+        var created = new Date(orders[j].created_at);
+        if (created <= new Date(dates.end)) {
+          revenue += parseFloat(orders[j].total_price || 0);
+          orderCount += 1;
+        }
+      }
     }
   }
-  return total;
+
+  for (var k = 0; k < amazonAccounts.length; k++) {
+    if (amazonAccounts[k].name === shopName) {
+      var amzOrders = await getAmazonOrders(amazonAccounts[k], dates.start);
+      for (var l = 0; l < amzOrders.length; l++) {
+        if (amzOrders[l].OrderTotal && amzOrders[l].OrderTotal.Amount) {
+          revenue += parseFloat(amzOrders[l].OrderTotal.Amount);
+        }
+        orderCount += 1;
+      }
+    }
+  }
+
+  return { revenue: revenue, orders: orderCount };
+}
+
+async function getStatsForAll(period) {
+  var dates = getPeriodDates(period);
+  var shops = getShops();
+  var amazonAccounts = getAmazonAccounts();
+  var revenue = 0;
+  var orderCount = 0;
+
+  for (var i = 0; i < shops.length; i++) {
+    var orders = await getShopifyOrders(shops[i], dates.start);
+    for (var j = 0; j < orders.length; j++) {
+      var created = new Date(orders[j].created_at);
+      if (created <= new Date(dates.end)) {
+        revenue += parseFloat(orders[j].total_price || 0);
+        orderCount += 1;
+      }
+    }
+  }
+
+  for (var k = 0; k < amazonAccounts.length; k++) {
+    var amzOrders = await getAmazonOrders(amazonAccounts[k], dates.start);
+    for (var l = 0; l < amzOrders.length; l++) {
+      if (amzOrders[l].OrderTotal && amzOrders[l].OrderTotal.Amount) {
+        revenue += parseFloat(amzOrders[l].OrderTotal.Amount);
+      }
+      orderCount += 1;
+    }
+  }
+
+  return { revenue: revenue, orders: orderCount };
 }
 
 // ============================================================
-// NOTIFICATIONS - Detection des nouvelles commandes
+// BOUTONS
+// ============================================================
+
+function getShopButtons() {
+  var shops = getShops();
+  var amazonAccounts = getAmazonAccounts();
+  var buttons = [];
+  var row = [];
+
+  for (var i = 0; i < shops.length; i++) {
+    row.push({ text: shops[i].name, callback_data: "s:" + shops[i].name });
+    if (row.length === 4) { buttons.push(row); row = []; }
+  }
+
+  for (var j = 0; j < amazonAccounts.length; j++) {
+    row.push({ text: amazonAccounts[j].name, callback_data: "s:" + amazonAccounts[j].name });
+    if (row.length === 4) { buttons.push(row); row = []; }
+  }
+
+  if (row.length > 0) buttons.push(row);
+  buttons.push([{ text: "🌍 ALL", callback_data: "s:ALL" }]);
+  return buttons;
+}
+
+function getPeriodButtons(shopName) {
+  return [
+    [
+      { text: "📅 Aujourd'hui", callback_data: "p:" + shopName + ":d" },
+      { text: "⏪ Hier", callback_data: "p:" + shopName + ":h" }
+    ],
+    [
+      { text: "📆 Ce mois", callback_data: "p:" + shopName + ":m" },
+      { text: "📊 Cette annee", callback_data: "p:" + shopName + ":a" }
+    ],
+    [
+      { text: "🏆 Total", callback_data: "p:" + shopName + ":t" }
+    ],
+    [
+      { text: "⬅️ Retour", callback_data: "back" }
+    ]
+  ];
+}
+
+// ============================================================
+// NOTIFICATIONS
 // ============================================================
 
 var knownOrderIds = {};
@@ -293,17 +363,11 @@ function resetDailyStatsIfNeeded() {
 
 function addToShopStats(shopName, amount) {
   var stats = resetDailyStatsIfNeeded();
-  if (!stats[shopName]) {
-    stats[shopName] = { revenue: 0, orders: 0 };
-  }
+  if (!stats[shopName]) { stats[shopName] = { revenue: 0, orders: 0 }; }
   stats[shopName].revenue += amount;
   stats[shopName].orders += 1;
   stats._totalRevenue += amount;
   stats._totalOrders += 1;
-}
-
-function formatMoney(amount) {
-  return Math.round(amount).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
 
 function buildRecapMessage() {
@@ -317,10 +381,9 @@ function buildRecapMessage() {
       lines.push("   🔹 " + keys[i] + " : " + formatMoney(s.revenue) + " €");
     }
   }
-  var recap = "\n📊 <b>Recap du jour :</b>\n" + lines.join("\n") +
+  return "\n\n📊 <b>Recap du jour :</b>\n" + lines.join("\n") +
     "\n   ———————————\n" +
     "   💰 <b>Total : " + formatMoney(stats._totalRevenue) + " € (" + stats._totalOrders + " commande" + (stats._totalOrders > 1 ? "s" : "") + ")</b>";
-  return recap;
 }
 
 async function checkNewOrders() {
@@ -328,10 +391,8 @@ async function checkNewOrders() {
   var amazonAccounts = getAmazonAccounts();
   var now = new Date();
   var startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-
   resetDailyStatsIfNeeded();
 
-  // Shopify
   for (var i = 0; i < shops.length; i++) {
     var shop = shops[i];
     try {
@@ -345,18 +406,14 @@ async function checkNewOrders() {
           addToShopStats(shop.name, amount);
           if (!firstRun) {
             var msg = "🛒 <b>Nouvelle commande sur " + shop.name + " !</b>\n" +
-              "💰 Montant : " + formatMoney(amount) + " €" +
-              buildRecapMessage();
-            await sendTelegram(msg);
+              "💰 Montant : " + formatMoney(amount) + " €" + buildRecapMessage();
+            await sendTelegram(msg, getShopButtons());
           }
         }
       }
-    } catch (error) {
-      console.error("Erreur check commandes " + shop.name + ": " + error.message);
-    }
+    } catch (error) { console.error("Erreur check " + shop.name + ": " + error.message); }
   }
 
-  // Amazon
   for (var k = 0; k < amazonAccounts.length; k++) {
     var account = amazonAccounts[k];
     try {
@@ -367,34 +424,106 @@ async function checkNewOrders() {
         if (!knownOrderIds[amzOrderId]) {
           knownOrderIds[amzOrderId] = true;
           var amzAmount = 0;
-          if (amzOrder.OrderTotal && amzOrder.OrderTotal.Amount) {
-            amzAmount = parseFloat(amzOrder.OrderTotal.Amount);
-          }
+          if (amzOrder.OrderTotal && amzOrder.OrderTotal.Amount) { amzAmount = parseFloat(amzOrder.OrderTotal.Amount); }
           addToShopStats(account.name, amzAmount);
           if (!firstRun) {
             var amzMsg = "📦 <b>Nouvelle commande sur " + account.name + " !</b>\n" +
-              "💰 Montant : " + formatMoney(amzAmount) + " €" +
-              buildRecapMessage();
-            await sendTelegram(amzMsg);
+              "💰 Montant : " + formatMoney(amzAmount) + " €" + buildRecapMessage();
+            await sendTelegram(amzMsg, getShopButtons());
           }
         }
       }
-    } catch (error) {
-      console.error("Erreur check commandes " + account.name + ": " + error.message);
-    }
+    } catch (error) { console.error("Erreur check " + account.name + ": " + error.message); }
   }
 
   if (firstRun) {
     firstRun = false;
     var stats = resetDailyStatsIfNeeded();
-    console.log("Premier scan: " + stats._totalOrders + " commandes du jour detectees (" + formatMoney(stats._totalRevenue) + " EUR)");
+    console.log("Premier scan: " + stats._totalOrders + " commandes (" + formatMoney(stats._totalRevenue) + " EUR)");
   }
 }
 
 setInterval(checkNewOrders, 60 * 1000);
 
 // ============================================================
-// TOTAL pour le compteur SMIIRL
+// WEBHOOK TELEGRAM (gestion des boutons)
+// ============================================================
+
+app.post("/webhook", async function (req, res) {
+  res.json({ ok: true });
+
+  var callback = req.body && req.body.callback_query;
+  if (!callback) return;
+
+  var callbackId = callback.id;
+  var chatId = callback.message && callback.message.chat.id;
+  var messageId = callback.message && callback.message.message_id;
+  var data = callback.data;
+
+  await answerCallback(callbackId);
+
+  if (!data || !chatId || !messageId) return;
+
+  // Retour aux boutiques
+  if (data === "back") {
+    var backMsg = "🏪 <b>Choisissez une boutique :</b>";
+    await editMessage(chatId, messageId, backMsg, getShopButtons());
+    return;
+  }
+
+  // Selection d'une boutique
+  if (data.indexOf("s:") === 0) {
+    var shopName = data.substring(2);
+    var periodMsg = "🏪 <b>" + shopName + "</b>\n\n📅 Choisissez une periode :";
+    await editMessage(chatId, messageId, periodMsg, getPeriodButtons(shopName));
+    return;
+  }
+
+  // Selection d'une periode
+  if (data.indexOf("p:") === 0) {
+    var parts = data.split(":");
+    var pShopName = parts[1];
+    var period = parts[2];
+    var periodLabel = getPeriodLabel(period);
+
+    var loadingMsg = "⏳ <b>Chargement " + pShopName + " - " + periodLabel + "...</b>";
+    await editMessage(chatId, messageId, loadingMsg, null);
+
+    var stats;
+    if (pShopName === "ALL") {
+      stats = await getStatsForAll(period);
+    } else {
+      stats = await getStatsForShop(pShopName, period);
+    }
+
+    var resultMsg = "🏪 <b>" + pShopName + " - " + periodLabel + "</b>\n\n" +
+      "💰 CA : " + formatMoney(stats.revenue) + " €\n" +
+      "📦 Commandes : " + stats.orders;
+
+    var resultButtons = [
+      [
+        { text: "📅 Aujourd'hui", callback_data: "p:" + pShopName + ":d" },
+        { text: "⏪ Hier", callback_data: "p:" + pShopName + ":h" }
+      ],
+      [
+        { text: "📆 Ce mois", callback_data: "p:" + pShopName + ":m" },
+        { text: "📊 Cette annee", callback_data: "p:" + pShopName + ":a" }
+      ],
+      [
+        { text: "🏆 Total", callback_data: "p:" + pShopName + ":t" }
+      ],
+      [
+        { text: "⬅️ Retour aux boutiques", callback_data: "back" }
+      ]
+    ];
+
+    await editMessage(chatId, messageId, resultMsg, resultButtons);
+    return;
+  }
+});
+
+// ============================================================
+// TOTAL pour SMIIRL
 // ============================================================
 
 var cachedNumber = 0;
@@ -403,30 +532,21 @@ var CACHE_DURATION = 60 * 1000;
 
 async function getTotalRevenue() {
   var now = Date.now();
-  if (now - lastFetch < CACHE_DURATION && cachedNumber > 0) {
-    return cachedNumber;
-  }
-
+  if (now - lastFetch < CACHE_DURATION && cachedNumber > 0) { return cachedNumber; }
   var shops = getShops();
   var amazonAccounts = getAmazonAccounts();
   var startOfYear = new Date(new Date().getFullYear(), 0, 1).toISOString();
-
   var total = 0;
-
   for (var i = 0; i < shops.length; i++) {
     var orders = await getShopifyOrders(shops[i], startOfYear);
-    var rev = getShopifyRevenue(orders);
-    total += rev;
-    console.log("Shopify " + shops[i].name + ": " + rev.toFixed(2) + " EUR");
+    for (var j = 0; j < orders.length; j++) { total += parseFloat(orders[j].total_price || 0); }
   }
-
-  for (var j = 0; j < amazonAccounts.length; j++) {
-    var amzOrders = await getAmazonOrders(amazonAccounts[j], startOfYear);
-    var amzRev = getAmazonRevenue(amzOrders);
-    total += amzRev;
-    console.log("Amazon " + amazonAccounts[j].name + ": " + amzRev.toFixed(2) + " EUR");
+  for (var k = 0; k < amazonAccounts.length; k++) {
+    var amzOrders = await getAmazonOrders(amazonAccounts[k], startOfYear);
+    for (var l = 0; l < amzOrders.length; l++) {
+      if (amzOrders[l].OrderTotal && amzOrders[l].OrderTotal.Amount) { total += parseFloat(amzOrders[l].OrderTotal.Amount); }
+    }
   }
-
   cachedNumber = Math.round(total);
   lastFetch = now;
   console.log("TOTAL GLOBAL: " + cachedNumber + " EUR");
@@ -438,13 +558,8 @@ async function getTotalRevenue() {
 // ============================================================
 
 app.get("/", async function (req, res) {
-  try {
-    var number = await getTotalRevenue();
-    res.json({ number: number });
-  } catch (error) {
-    console.error("Erreur:", error);
-    res.json({ number: cachedNumber || 0 });
-  }
+  try { var number = await getTotalRevenue(); res.json({ number: number }); }
+  catch (error) { res.json({ number: cachedNumber || 0 }); }
 });
 
 app.get("/debug", async function (req, res) {
@@ -452,34 +567,19 @@ app.get("/debug", async function (req, res) {
   var amazonAccounts = getAmazonAccounts();
   var startOfYear = new Date(new Date().getFullYear(), 0, 1).toISOString();
   var results = [];
-
   for (var i = 0; i < shops.length; i++) {
     var orders = await getShopifyOrders(shops[i], startOfYear);
-    var revenue = getShopifyRevenue(orders);
-    results.push({ source: "Shopify", name: shops[i].name, revenue: revenue.toFixed(2) });
+    var rev = 0; for (var j = 0; j < orders.length; j++) { rev += parseFloat(orders[j].total_price || 0); }
+    results.push({ source: "Shopify", name: shops[i].name, revenue: rev.toFixed(2) });
   }
-
-  for (var j = 0; j < amazonAccounts.length; j++) {
-    var amzOrders = await getAmazonOrders(amazonAccounts[j], startOfYear);
-    var amzRevenue = getAmazonRevenue(amzOrders);
-    results.push({ source: "Amazon", name: amazonAccounts[j].name, revenue: amzRevenue.toFixed(2) });
+  for (var k = 0; k < amazonAccounts.length; k++) {
+    var amzOrders = await getAmazonOrders(amazonAccounts[k], startOfYear);
+    var amzRev = 0; for (var l = 0; l < amzOrders.length; l++) { if (amzOrders[l].OrderTotal) { amzRev += parseFloat(amzOrders[l].OrderTotal.Amount); } }
+    results.push({ source: "Amazon", name: amazonAccounts[k].name, revenue: amzRev.toFixed(2) });
   }
-
-  var total = 0;
-  for (var k = 0; k < results.length; k++) {
-    total += parseFloat(results[k].revenue);
-  }
-
+  var total = 0; for (var m = 0; m < results.length; m++) { total += parseFloat(results[m].revenue); }
   var today = resetDailyStatsIfNeeded();
-
-  res.json({
-    shops: results,
-    total: total.toFixed(2),
-    number: Math.round(total),
-    todayRevenue: today._totalRevenue.toFixed(2),
-    todayOrders: today._totalOrders,
-    lastUpdate: new Date().toISOString(),
-  });
+  res.json({ shops: results, total: total.toFixed(2), number: Math.round(total), todayRevenue: today._totalRevenue.toFixed(2), todayOrders: today._totalOrders, lastUpdate: new Date().toISOString() });
 });
 
 app.get("/test", async function (req, res) {
@@ -489,9 +589,8 @@ app.get("/test", async function (req, res) {
   addToShopStats("MTC", 450);
   addToShopStats("Amazon FR", 2100);
   var msg = "🛒 <b>Nouvelle commande sur LFC !</b>\n" +
-    "💰 Montant : 1 250 €" +
-    buildRecapMessage();
-  await sendTelegram(msg);
+    "💰 Montant : 1 250 €" + buildRecapMessage();
+  await sendTelegram(msg, getShopButtons());
   res.json({ ok: true, message: "Notification test envoyee !" });
 });
 
@@ -500,7 +599,7 @@ app.listen(PORT, function () {
   var shops = getShops();
   var amazonAccounts = getAmazonAccounts();
   console.log("Serveur SMIIRL demarre sur le port " + PORT);
-  console.log(shops.length + " boutique(s) Shopify configuree(s)");
-  console.log(amazonAccounts.length + " compte(s) Amazon configure(s)");
+  console.log(shops.length + " boutique(s) Shopify");
+  console.log(amazonAccounts.length + " compte(s) Amazon");
   checkNewOrders();
 });
