@@ -441,12 +441,12 @@ function buildRecapMessage() {
     if (s.revenue > 0) {
       var pct = stats._totalRevenue > 0 ? ((s.revenue / stats._totalRevenue) * 100).toFixed(1) : "0";
       var avg = s.orders > 0 ? Math.round(s.revenue / s.orders) : 0;
-      lines.push("   🔹 " + keys[i] + " : " + formatMoney(s.revenue) + " € (" + pct + "%) · 🛒 " + s.orders + " · Ø " + formatMoney(avg) + " €");
+      lines.push("🔹 <b>" + keys[i] + "</b>\n     💰 " + formatMoney(s.revenue) + " € (" + pct + "%)\n     🛒 " + s.orders + " cmd · Ø " + formatMoney(avg) + " €");
     }
   }
-  return "\n\n📊 <b>Recap du jour :</b>\n" + lines.join("\n") +
-    "\n   ———————————\n" +
-    "   💰 <b>Total : " + formatMoney(stats._totalRevenue) + " € (" + stats._totalOrders + " commande" + (stats._totalOrders > 1 ? "s" : "") + ")</b>";
+  return "\n\n📊 <b>Recap du jour :</b>\n\n" + lines.join("\n\n") +
+    "\n\n———————————\n" +
+    "💰 <b>Total : " + formatMoney(stats._totalRevenue) + " € (" + stats._totalOrders + " commande" + (stats._totalOrders > 1 ? "s" : "") + ")</b>";
 }
 
 async function checkNewOrders() {
@@ -565,7 +565,8 @@ app.post("/webhook", async function (req, res) {
     var aPeriodLabel = getPeriodLabel(aPeriod);
     await editMessage(chatId, messageId, "⏳ <b>Chargement " + aLabel + " - " + aPeriodLabel + "...</b>", null);
     var aStats = await getStatsForShop(null, aPeriod, aMpId);
-    var aResultMsg = "📦 <b>" + aLabel + " - " + aPeriodLabel + "</b>\n\n💰 CA : " + formatMoney(aStats.revenue) + " €\n📦 Commandes : " + aStats.orders;
+    var aAvg = aStats.orders > 0 ? Math.round(aStats.revenue / aStats.orders) : 0;
+    var aResultMsg = "📦 <b>" + aLabel + " - " + aPeriodLabel + "</b>\n\n💰 CA : " + formatMoney(aStats.revenue) + " €\n📦 Commandes : " + aStats.orders + "\n🛒 Panier moyen : " + formatMoney(aAvg) + " €";
     await editMessage(chatId, messageId, aResultMsg, getAmzPeriodButtons(aMpId));
     return;
   }
@@ -587,7 +588,8 @@ app.post("/webhook", async function (req, res) {
     var pStats;
     if (pShopName === "ALL") { pStats = await getStatsForAll(period); }
     else { pStats = await getStatsForShop(pShopName, period, null); }
-    var pResultMsg = "🏪 <b>" + pShopName + " - " + periodLabel + "</b>\n\n💰 CA : " + formatMoney(pStats.revenue) + " €\n📦 Commandes : " + pStats.orders;
+    var pAvg = pStats.orders > 0 ? Math.round(pStats.revenue / pStats.orders) : 0;
+    var pResultMsg = "🏪 <b>" + pShopName + " - " + periodLabel + "</b>\n\n💰 CA : " + formatMoney(pStats.revenue) + " €\n📦 Commandes : " + pStats.orders + "\n🛒 Panier moyen : " + formatMoney(pAvg) + " €";
     await editMessage(chatId, messageId, pResultMsg, getPeriodButtons(pShopName));
     return;
   }
