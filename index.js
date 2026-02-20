@@ -1,6 +1,10 @@
 const express = require("express");
 const app = express();
 
+// ============================================================
+// SHOPIFY
+// ============================================================
+
 function getShops() {
   var shops = [];
   for (var i = 1; i <= 20; i++) {
@@ -18,11 +22,11 @@ function getShops() {
   return shops;
 }
 
-var tokenCache = {};
+var shopifyTokenCache = {};
 
-async function getAccessToken(shop) {
+async function getShopifyAccessToken(shop) {
   var now = Date.now();
-  var cached = tokenCache[shop.domain];
+  var cached = shopifyTokenCache[shop.domain];
   if (cached && now - cached.obtainedAt < 23 * 60 * 60 * 1000) {
     return cached.token;
   }
@@ -40,19 +44,19 @@ async function getAccessToken(shop) {
 
   if (!response.ok) {
     var text = await response.text();
-    console.error("Erreur token pour " + shop.domain + ": " + response.status + " - " + text);
+    console.error("Erreur token Shopify pour " + shop.domain + ": " + response.status + " - " + text);
     return null;
   }
 
   var data = await response.json();
   var token = data.access_token;
-  tokenCache[shop.domain] = { token: token, obtainedAt: now };
-  console.log("Token obtenu pour " + shop.domain);
+  shopifyTokenCache[shop.domain] = { token: token, obtainedAt: now };
+  console.log("Token Shopify obtenu pour " + shop.domain);
   return token;
 }
 
-async function getShopRevenue(shop) {
-  var token = await getAccessToken(shop);
+async function getShopifyRevenue(shop) {
+  var token = await getShopifyAccessToken(shop);
   if (!token) return 0;
 
   var now = new Date();
@@ -86,7 +90,7 @@ async function getShopRevenue(shop) {
       });
 
       if (!response.ok) {
-        console.error("Erreur " + response.status + " pour " + shop.domain);
+        console.error("Erreur Shopify " + response.status + " pour " + shop.domain);
         break;
       }
 
@@ -104,14 +108,137 @@ async function getShopRevenue(shop) {
         if (nextMatch) nextPageUrl = nextMatch[1];
       }
     } catch (error) {
-      console.error("Erreur pour " + shop.domain + ": " + error.message);
+      console.error("Erreur Shopify pour " + shop.domain + ": " + error.message);
       break;
     }
   }
 
-  console.log(shop.domain + ": " + totalRevenue.toFixed(2) + " EUR");
+  console.log("Shopify " + shop.domain + ": " + totalRevenue.toFixed(2) + " EUR");
   return totalRevenue;
 }
+
+// ============================================================
+// AMAZON
+// ============================================================
+
+function getAmazonAccounts() {
+  var accounts = [];
+  for (var i = 1; i <= 10; i++) {
+    var clientId = process.env["AMAZON_" + i + "_CLIENT_ID"];
+    var clientSecret = process.env["AMAZON_" + i + "_CLIENT_SECRET"];
+    var refreshToken = process.env["AMAZON_" + i + "_REFRESH_TOKEN"];
+    var marketplace = process.env["AMAZON_" + i + "_MARKETPLACE"] || "A13V1IB3VIYZZH";
+    var endpoint = process.env["AMAZON_" + i + "_ENDPOINT"] || "https://sellingpartnerapi-eu.amazon.com";
+    if (clientId && clientSecret && refreshToken) {
+      accounts.push({
+        name: "Amazon " + i,
+        clientId: clientId,
+        clientSecret: clientSecret,
+        refreshToken: refreshToken,
+        marketplace: marketplace,
+        endpoint: endpoint
+      });
+    }
+  }
+  return accounts;
+}
+
+var amazonTokenCache = {};
+
+async function getAmazonAccessToken(account) {
+  var now = Date.now();
+  var cached = amazonTokenCache[account.name];
+  if (cached && now - cached.obtainedAt < 50 * 60 * 1000) {
+    return cached.token;
+  }
+
+  var response = await fetch("https://api.amazon.com/auth/o2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: "grant_type=refresh_token" +
+      "&client_id=" + encodeURIComponent(account.clientId) +
+      "&client_secret=" + encodeURIComponent(account.clientSecret) +
+      "&refresh_token=" + encodeURIComponent(account.refreshToken),
+  });
+
+  if (!response.ok) {
+    var text = await response.text();
+    console.error("Erreur token Amazon " + account.name + ": " + response.status + " - " + text);
+    return null;
+  }
+
+  var data = await response.json();
+  var token = data.access_token;
+  amazonTokenCache[account.name] = { token: token, obtainedAt: now };
+  console.log("Token Amazon obtenu pour " + account.name);
+  return token;
+}
+
+async function getAmazonRevenue(account) {
+  var token = await getAmazonAccessToken(account);
+  if (!token) return 0;
+
+  var now = new Date();
+  var startOfYear = new Date(now.getFullYear(), 0, 1).toISOString();
+
+  var totalRevenue = 0;
+  var nextToken = null;
+  var isFirstRequest = true;
+
+  while (isFirstRequest || nextToken) {
+    isFirstRequest = false;
+
+    var url = account.endpoint + "/orders/v0/orders" +
+      "?MarketplaceIds=" + account.marketplace +
+      "&CreatedAfter=" + encodeURIComponent(startOfYear) +
+      "&OrderStatuses=Shipped,Unshipped" +
+      "&MaxResultsPerPage=100";
+
+    if (nextToken) {
+      url += "&NextToken=" + encodeURIComponent(nextToken);
+    }
+
+    try {
+      var response = await fetch(url, {
+        headers: {
+          "x-amz-access-token": token,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        var text = await response.text();
+        console.error("Erreur Amazon " + response.status + " pour " + account.name + ": " + text);
+        break;
+      }
+
+      var data = await response.json();
+      var orders = data.payload && data.payload.Orders ? data.payload.Orders : [];
+
+      for (var j = 0; j < orders.length; j++) {
+        var order = orders[j];
+        if (order.OrderTotal && order.OrderTotal.Amount) {
+          totalRevenue += parseFloat(order.OrderTotal.Amount);
+        }
+      }
+
+      nextToken = null;
+      if (data.payload && data.payload.NextToken) {
+        nextToken = data.payload.NextToken;
+      }
+    } catch (error) {
+      console.error("Erreur Amazon pour " + account.name + ": " + error.message);
+      break;
+    }
+  }
+
+  console.log(account.name + ": " + totalRevenue.toFixed(2) + " EUR");
+  return totalRevenue;
+}
+
+// ============================================================
+// TOTAL (Shopify + Amazon)
+// ============================================================
 
 var cachedNumber = 0;
 var lastFetch = 0;
@@ -124,23 +251,30 @@ async function getTotalRevenue() {
   }
 
   var shops = getShops();
-  if (shops.length === 0) {
-    console.error("Aucune boutique configuree !");
-    return 0;
-  }
+  var amazonAccounts = getAmazonAccounts();
 
-  console.log("Recuperation du CA pour " + shops.length + " boutique(s)...");
-  var revenues = await Promise.all(shops.map(getShopRevenue));
+  console.log("Recuperation du CA pour " + shops.length + " boutique(s) Shopify et " + amazonAccounts.length + " compte(s) Amazon...");
+
+  var shopifyRevenues = await Promise.all(shops.map(getShopifyRevenue));
+  var amazonRevenues = await Promise.all(amazonAccounts.map(getAmazonRevenue));
+
   var total = 0;
-  for (var i = 0; i < revenues.length; i++) {
-    total += revenues[i];
+  for (var i = 0; i < shopifyRevenues.length; i++) {
+    total += shopifyRevenues[i];
+  }
+  for (var j = 0; j < amazonRevenues.length; j++) {
+    total += amazonRevenues[j];
   }
 
   cachedNumber = Math.round(total);
   lastFetch = now;
-  console.log("TOTAL: " + cachedNumber + " EUR");
+  console.log("TOTAL GLOBAL: " + cachedNumber + " EUR");
   return cachedNumber;
 }
+
+// ============================================================
+// ROUTES
+// ============================================================
 
 app.get("/", async function (req, res) {
   try {
@@ -154,15 +288,24 @@ app.get("/", async function (req, res) {
 
 app.get("/debug", async function (req, res) {
   var shops = getShops();
+  var amazonAccounts = getAmazonAccounts();
   var results = [];
+
   for (var i = 0; i < shops.length; i++) {
-    var revenue = await getShopRevenue(shops[i]);
-    results.push({ domain: shops[i].domain, revenue: revenue.toFixed(2) });
+    var revenue = await getShopifyRevenue(shops[i]);
+    results.push({ source: "Shopify", name: shops[i].domain, revenue: revenue.toFixed(2) });
   }
+
+  for (var j = 0; j < amazonAccounts.length; j++) {
+    var amzRevenue = await getAmazonRevenue(amazonAccounts[j]);
+    results.push({ source: "Amazon", name: amazonAccounts[j].name, revenue: amzRevenue.toFixed(2) });
+  }
+
   var total = 0;
-  for (var j = 0; j < results.length; j++) {
-    total += parseFloat(results[j].revenue);
+  for (var k = 0; k < results.length; k++) {
+    total += parseFloat(results[k].revenue);
   }
+
   res.json({
     shops: results,
     total: total.toFixed(2),
@@ -174,6 +317,8 @@ app.get("/debug", async function (req, res) {
 var PORT = process.env.PORT || 3000;
 app.listen(PORT, function () {
   var shops = getShops();
+  var amazonAccounts = getAmazonAccounts();
   console.log("Serveur SMIIRL demarre sur le port " + PORT);
-  console.log(shops.length + " boutique(s) configuree(s)");
+  console.log(shops.length + " boutique(s) Shopify configuree(s)");
+  console.log(amazonAccounts.length + " compte(s) Amazon configure(s)");
 });
