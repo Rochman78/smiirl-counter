@@ -3,6 +3,29 @@ const app = express();
 app.use(express.json());
 
 // ============================================================
+// UTILS
+// ============================================================
+
+function sleep(ms) {
+  return new Promise(function(resolve) { setTimeout(resolve, ms); });
+}
+
+async function fetchWithRetry(url, options, retries) {
+  if (!retries) retries = 3;
+  for (var i = 0; i < retries; i++) {
+    var response = await fetch(url, options);
+    if (response.status === 429) {
+      var wait = (i + 1) * 5000;
+      console.log("Rate limited, attente " + (wait/1000) + "s...");
+      await sleep(wait);
+      continue;
+    }
+    return response;
+  }
+  return null;
+}
+
+// ============================================================
 // TELEGRAM
 // ============================================================
 
@@ -12,29 +35,18 @@ var TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 async function sendTelegram(message, buttons) {
   if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) return;
   try {
-    var body = {
-      chat_id: TELEGRAM_CHAT_ID,
-      text: message,
-      parse_mode: "HTML"
-    };
-    if (buttons) {
-      body.reply_markup = JSON.stringify({ inline_keyboard: buttons });
-    }
+    var body = { chat_id: TELEGRAM_CHAT_ID, text: message, parse_mode: "HTML" };
+    if (buttons) { body.reply_markup = JSON.stringify({ inline_keyboard: buttons }); }
     await fetch("https://api.telegram.org/bot" + TELEGRAM_TOKEN + "/sendMessage", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
     });
-  } catch (error) {
-    console.error("Erreur Telegram: " + error.message);
-  }
+  } catch (error) { console.error("Erreur Telegram: " + error.message); }
 }
 
 async function answerCallback(callbackId) {
   try {
     await fetch("https://api.telegram.org/bot" + TELEGRAM_TOKEN + "/answerCallbackQuery", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ callback_query_id: callbackId })
     });
   } catch (error) {}
@@ -42,23 +54,12 @@ async function answerCallback(callbackId) {
 
 async function editMessage(chatId, messageId, text, buttons) {
   try {
-    var body = {
-      chat_id: chatId,
-      message_id: messageId,
-      text: text,
-      parse_mode: "HTML"
-    };
-    if (buttons) {
-      body.reply_markup = JSON.stringify({ inline_keyboard: buttons });
-    }
+    var body = { chat_id: chatId, message_id: messageId, text: text, parse_mode: "HTML" };
+    if (buttons) { body.reply_markup = JSON.stringify({ inline_keyboard: buttons }); }
     await fetch("https://api.telegram.org/bot" + TELEGRAM_TOKEN + "/editMessageText", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
     });
-  } catch (error) {
-    console.error("Erreur edit message: " + error.message);
-  }
+  } catch (error) { console.error("Erreur edit message: " + error.message); }
 }
 
 // ============================================================
@@ -84,20 +85,13 @@ var shopifyTokenCache = {};
 async function getShopifyAccessToken(shop) {
   var now = Date.now();
   var cached = shopifyTokenCache[shop.domain];
-  if (cached && now - cached.obtainedAt < 23 * 60 * 60 * 1000) {
-    return cached.token;
-  }
+  if (cached && now - cached.obtainedAt < 23 * 60 * 60 * 1000) { return cached.token; }
   var url = "https://" + shop.domain + "/admin/oauth/access_token";
   var response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+    method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ grant_type: "client_credentials", client_id: shop.clientId, client_secret: shop.clientSecret }),
   });
-  if (!response.ok) {
-    var text = await response.text();
-    console.error("Erreur token Shopify " + shop.domain + ": " + response.status + " - " + text);
-    return null;
-  }
+  if (!response.ok) { console.error("Erreur token Shopify " + shop.domain + ": " + response.status); return null; }
   var data = await response.json();
   shopifyTokenCache[shop.domain] = { token: data.access_token, obtainedAt: now };
   return data.access_token;
@@ -156,16 +150,16 @@ var amazonTokenCache = {};
 
 async function getAmazonAccessToken(account) {
   var now = Date.now();
-  var cached = amazonTokenCache[account.name];
+  var cacheKey = account.clientId;
+  var cached = amazonTokenCache[cacheKey];
   if (cached && now - cached.obtainedAt < 50 * 60 * 1000) { return cached.token; }
   var response = await fetch("https://api.amazon.com/auth/o2/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: "grant_type=refresh_token&client_id=" + encodeURIComponent(account.clientId) + "&client_secret=" + encodeURIComponent(account.clientSecret) + "&refresh_token=" + encodeURIComponent(account.refreshToken),
   });
-  if (!response.ok) { var text = await response.text(); console.error("Erreur token Amazon " + account.name + ": " + text); return null; }
+  if (!response.ok) { console.error("Erreur token Amazon " + account.name + ": " + response.status); return null; }
   var data = await response.json();
-  amazonTokenCache[account.name] = { token: data.access_token, obtainedAt: now };
+  amazonTokenCache[cacheKey] = { token: data.access_token, obtainedAt: now };
   return data.access_token;
 }
 
@@ -181,12 +175,13 @@ async function getAmazonOrders(account, since) {
       "&CreatedAfter=" + encodeURIComponent(since) + "&OrderStatuses=Shipped,Unshipped&MaxResultsPerPage=100";
     if (nextToken) { url += "&NextToken=" + encodeURIComponent(nextToken); }
     try {
-      var response = await fetch(url, { headers: { "x-amz-access-token": token, "Content-Type": "application/json" } });
-      if (!response.ok) { console.error("Erreur Amazon " + response.status + " " + account.name); break; }
+      var response = await fetchWithRetry(url, { headers: { "x-amz-access-token": token, "Content-Type": "application/json" } });
+      if (!response || !response.ok) { console.error("Erreur Amazon " + (response ? response.status : "timeout") + " " + account.name); break; }
       var data = await response.json();
       var orders = data.payload && data.payload.Orders ? data.payload.Orders : [];
       for (var j = 0; j < orders.length; j++) { allOrders.push(orders[j]); }
       nextToken = data.payload && data.payload.NextToken ? data.payload.NextToken : null;
+      if (nextToken) await sleep(1000);
     } catch (error) { console.error("Erreur Amazon " + account.name + ": " + error.message); break; }
   }
   return allOrders;
@@ -196,10 +191,6 @@ async function getAmazonOrders(account, since) {
 // HELPERS
 // ============================================================
 
-function sleep(ms) {
-  return new Promise(function(resolve) { setTimeout(resolve, ms); });
-}
-
 function formatMoney(amount) {
   return Math.round(amount).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
@@ -207,22 +198,11 @@ function formatMoney(amount) {
 function getPeriodDates(period) {
   var now = new Date();
   var start, end;
-  if (period === "d") {
-    start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    end = now;
-  } else if (period === "h") {
-    start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-    end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  } else if (period === "m") {
-    start = new Date(now.getFullYear(), now.getMonth(), 1);
-    end = now;
-  } else if (period === "a") {
-    start = new Date(now.getFullYear(), 0, 1);
-    end = now;
-  } else {
-    start = new Date(2020, 0, 1);
-    end = now;
-  }
+  if (period === "d") { start = new Date(now.getFullYear(), now.getMonth(), now.getDate()); end = now; }
+  else if (period === "h") { start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1); end = new Date(now.getFullYear(), now.getMonth(), now.getDate()); }
+  else if (period === "m") { start = new Date(now.getFullYear(), now.getMonth(), 1); end = now; }
+  else if (period === "a") { start = new Date(now.getFullYear(), 0, 1); end = now; }
+  else { start = new Date(2020, 0, 1); end = now; }
   return { start: start.toISOString(), end: end.toISOString() };
 }
 
@@ -243,7 +223,7 @@ async function getStatsForShop(shopName, period) {
 
   if (shopName === "ALL_AMAZON") {
     for (var a = 0; a < amazonAccounts.length; a++) {
-      if (a > 0) await sleep(2000);
+      if (a > 0) await sleep(3000);
       var allAmzOrders = await getAmazonOrders(amazonAccounts[a], dates.start);
       for (var b = 0; b < allAmzOrders.length; b++) {
         if (allAmzOrders[b].OrderTotal && allAmzOrders[b].OrderTotal.Amount) {
@@ -302,6 +282,7 @@ async function getStatsForAll(period) {
   }
 
   for (var k = 0; k < amazonAccounts.length; k++) {
+    if (k > 0) await sleep(3000);
     var amzOrders = await getAmazonOrders(amazonAccounts[k], dates.start);
     for (var l = 0; l < amzOrders.length; l++) {
       if (amzOrders[l].OrderTotal && amzOrders[l].OrderTotal.Amount) {
@@ -323,17 +304,15 @@ function getShopButtons() {
   var amazonAccounts = getAmazonAccounts();
   var buttons = [];
   var row = [];
-
   for (var i = 0; i < shops.length; i++) {
     row.push({ text: shops[i].name, callback_data: "s:" + shops[i].name });
     if (row.length === 4) { buttons.push(row); row = []; }
   }
-
+  if (row.length > 0) { buttons.push(row); row = []; }
   for (var j = 0; j < amazonAccounts.length; j++) {
     row.push({ text: amazonAccounts[j].name, callback_data: "s:" + amazonAccounts[j].name });
-    if (row.length === 4) { buttons.push(row); row = []; }
+    if (row.length === 3) { buttons.push(row); row = []; }
   }
-
   if (row.length > 0) buttons.push(row);
   buttons.push([
     { text: "📦 ALL AMAZON", callback_data: "s:ALL_AMAZON" },
@@ -434,7 +413,7 @@ async function checkNewOrders() {
 
   for (var k = 0; k < amazonAccounts.length; k++) {
     var account = amazonAccounts[k];
-    if (k > 0) await sleep(2000);
+    if (k > 0) await sleep(3000);
     try {
       var amzOrders = await getAmazonOrders(account, startOfDay);
       for (var l = 0; l < amzOrders.length; l++) {
@@ -465,78 +444,40 @@ async function checkNewOrders() {
 setInterval(checkNewOrders, 60 * 1000);
 
 // ============================================================
-// WEBHOOK TELEGRAM (gestion des boutons)
+// WEBHOOK TELEGRAM
 // ============================================================
 
 app.post("/webhook", async function (req, res) {
   res.json({ ok: true });
-
   var callback = req.body && req.body.callback_query;
   if (!callback) return;
-
   var callbackId = callback.id;
   var chatId = callback.message && callback.message.chat.id;
   var messageId = callback.message && callback.message.message_id;
   var data = callback.data;
-
   await answerCallback(callbackId);
-
   if (!data || !chatId || !messageId) return;
 
-  // Retour aux boutiques
   if (data === "back") {
-    var backMsg = "🏪 <b>Choisissez une boutique :</b>";
-    await editMessage(chatId, messageId, backMsg, getShopButtons());
+    await editMessage(chatId, messageId, "🏪 <b>Choisissez une boutique :</b>", getShopButtons());
     return;
   }
-
-  // Selection d'une boutique
   if (data.indexOf("s:") === 0) {
     var shopName = data.substring(2);
-    var periodMsg = "🏪 <b>" + shopName + "</b>\n\n📅 Choisissez une periode :";
-    await editMessage(chatId, messageId, periodMsg, getPeriodButtons(shopName));
+    await editMessage(chatId, messageId, "🏪 <b>" + shopName + "</b>\n\n📅 Choisissez une periode :", getPeriodButtons(shopName));
     return;
   }
-
-  // Selection d'une periode
   if (data.indexOf("p:") === 0) {
     var parts = data.split(":");
     var pShopName = parts[1];
     var period = parts[2];
     var periodLabel = getPeriodLabel(period);
-
-    var loadingMsg = "⏳ <b>Chargement " + pShopName + " - " + periodLabel + "...</b>";
-    await editMessage(chatId, messageId, loadingMsg, null);
-
+    await editMessage(chatId, messageId, "⏳ <b>Chargement " + pShopName + " - " + periodLabel + "...</b>", null);
     var stats;
-    if (pShopName === "ALL") {
-      stats = await getStatsForAll(period);
-    } else {
-      stats = await getStatsForShop(pShopName, period);
-    }
-
-    var resultMsg = "🏪 <b>" + pShopName + " - " + periodLabel + "</b>\n\n" +
-      "💰 CA : " + formatMoney(stats.revenue) + " €\n" +
-      "📦 Commandes : " + stats.orders;
-
-    var resultButtons = [
-      [
-        { text: "📅 Aujourd'hui", callback_data: "p:" + pShopName + ":d" },
-        { text: "⏪ Hier", callback_data: "p:" + pShopName + ":h" }
-      ],
-      [
-        { text: "📆 Ce mois", callback_data: "p:" + pShopName + ":m" },
-        { text: "📊 Cette annee", callback_data: "p:" + pShopName + ":a" }
-      ],
-      [
-        { text: "🏆 Total", callback_data: "p:" + pShopName + ":t" }
-      ],
-      [
-        { text: "⬅️ Retour aux boutiques", callback_data: "back" }
-      ]
-    ];
-
-    await editMessage(chatId, messageId, resultMsg, resultButtons);
+    if (pShopName === "ALL") { stats = await getStatsForAll(period); }
+    else { stats = await getStatsForShop(pShopName, period); }
+    var resultMsg = "🏪 <b>" + pShopName + " - " + periodLabel + "</b>\n\n💰 CA : " + formatMoney(stats.revenue) + " €\n📦 Commandes : " + stats.orders;
+    await editMessage(chatId, messageId, resultMsg, getPeriodButtons(pShopName));
     return;
   }
 });
@@ -547,7 +488,7 @@ app.post("/webhook", async function (req, res) {
 
 var cachedNumber = 0;
 var lastFetch = 0;
-var CACHE_DURATION = 60 * 1000;
+var CACHE_DURATION = 120 * 1000;
 
 async function getTotalRevenue() {
   var now = Date.now();
@@ -561,7 +502,7 @@ async function getTotalRevenue() {
     for (var j = 0; j < orders.length; j++) { total += parseFloat(orders[j].total_price || 0); }
   }
   for (var k = 0; k < amazonAccounts.length; k++) {
-    if (k > 0) await sleep(2000);
+    if (k > 0) await sleep(3000);
     var amzOrders = await getAmazonOrders(amazonAccounts[k], startOfYear);
     for (var l = 0; l < amzOrders.length; l++) {
       if (amzOrders[l].OrderTotal && amzOrders[l].OrderTotal.Amount) { total += parseFloat(amzOrders[l].OrderTotal.Amount); }
@@ -593,7 +534,7 @@ app.get("/debug", async function (req, res) {
     results.push({ source: "Shopify", name: shops[i].name, revenue: rev.toFixed(2) });
   }
   for (var k = 0; k < amazonAccounts.length; k++) {
-    if (k > 0) await sleep(2000);
+    if (k > 0) await sleep(3000);
     var amzOrders = await getAmazonOrders(amazonAccounts[k], startOfYear);
     var amzRev = 0; for (var l = 0; l < amzOrders.length; l++) { if (amzOrders[l].OrderTotal) { amzRev += parseFloat(amzOrders[l].OrderTotal.Amount); } }
     results.push({ source: "Amazon", name: amazonAccounts[k].name, revenue: amzRev.toFixed(2) });
