@@ -230,6 +230,18 @@ function filterOrdersByMarketplace(orders, marketplaceId) {
 // HELPERS
 // ============================================================
 
+function getParisHour() {
+  var now = new Date();
+  var paris = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Paris" }));
+  return paris.getHours();
+}
+
+function getParisMinute() {
+  var now = new Date();
+  var paris = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Paris" }));
+  return paris.getMinutes();
+}
+
 function formatMoney(amount) {
   return Math.round(amount).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
@@ -510,6 +522,26 @@ async function checkNewOrders() {
 
 setInterval(checkNewOrders, 60 * 1000);
 
+// Rapport auto du soir a 20h
+var eveningReportSent = false;
+
+setInterval(function () {
+  var hour = getParisHour();
+  var minute = getParisMinute();
+  if (hour === 20 && minute === 0 && !eveningReportSent) {
+    eveningReportSent = true;
+    var stats = resetDailyStatsIfNeeded();
+    if (stats._totalOrders > 0) {
+      var msg = "🌙 <b>Rapport du soir</b>" + buildRecapMessage();
+      sendTelegram(msg, getShopButtons());
+    } else {
+      sendTelegram("🌙 <b>Rapport du soir</b>\n\nAucune vente aujourd'hui.", null);
+    }
+  }
+  if (hour === 20 && minute === 1) { eveningReportSent = false; }
+  if (hour === 0 && minute === 0) { eveningReportSent = false; }
+}, 30 * 1000);
+
 // ============================================================
 // WEBHOOK TELEGRAM
 // ============================================================
@@ -517,6 +549,32 @@ setInterval(checkNewOrders, 60 * 1000);
 app.post("/webhook", async function (req, res) {
   res.json({ ok: true });
 
+  // Commande /compare
+  if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/compare") === 0) {
+    var cNow = new Date();
+    var cHour = getParisHour();
+    var cMin = getParisMinute();
+    var todayStats = await getStatsForAll("d");
+    var yesterdayStats = await getStatsForAll("h");
+    var diff = todayStats.revenue - yesterdayStats.revenue;
+    var arrow = diff >= 0 ? "📈" : "📉";
+    var sign = diff >= 0 ? "+" : "";
+    var pctChange = yesterdayStats.revenue > 0 ? ((diff / yesterdayStats.revenue) * 100).toFixed(1) : "N/A";
+    var todayAvg = todayStats.orders > 0 ? Math.round(todayStats.revenue / todayStats.orders) : 0;
+    var yesterdayAvg = yesterdayStats.orders > 0 ? Math.round(yesterdayStats.revenue / yesterdayStats.orders) : 0;
+    var compareMsg = "📊 <b>Comparaison</b>\n\n" +
+      "📅 <b>Aujourd'hui</b> (à " + cHour + "h" + String(cMin).padStart(2, "0") + ")\n" +
+      "     💰 " + formatMoney(todayStats.revenue) + " €\n" +
+      "     🛒 " + todayStats.orders + " cmd · Ø " + formatMoney(todayAvg) + " €\n\n" +
+      "⏪ <b>Hier (journee complete)</b>\n" +
+      "     💰 " + formatMoney(yesterdayStats.revenue) + " €\n" +
+      "     🛒 " + yesterdayStats.orders + " cmd · Ø " + formatMoney(yesterdayAvg) + " €\n\n" +
+      "———————————\n" +
+      arrow + " <b>" + sign + formatMoney(Math.abs(diff)) + " € (" + sign + pctChange + "%)</b>";
+    await sendTelegram(compareMsg, getShopButtons());
+    return;
+  }
+  
   // Commande /stats
   if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/stats") === 0) {
     var stats = resetDailyStatsIfNeeded();
