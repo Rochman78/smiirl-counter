@@ -72,8 +72,10 @@ async function getObjectif() {
     var text = await response.text();
     var lines = text.trim().split("\n");
     if (lines.length >= 1) {
-      var parts = lines[0].split(",");
-      var val = parseFloat(parts[1]);
+      var sep = lines[0].indexOf(";") >= 0 ? ";" : ",";
+      var parts = lines[0].split(sep);
+      var raw = (parts[1] || "").replace(/[^0-9.,]/g, "").replace(",", ".");
+      var val = parseFloat(raw);
       if (!isNaN(val) && val > 0) {
         cachedObjectif = val;
         lastObjectifFetch = now;
