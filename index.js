@@ -275,7 +275,7 @@ function getAmazonRevenue(orders) {
 // ============================================================
 
 var knownOrderIds = {};
-var dailyStats = {};
+var dailyShopStats = {};
 var firstRun = true;
 
 function getTodayKey() {
@@ -285,15 +285,42 @@ function getTodayKey() {
 
 function resetDailyStatsIfNeeded() {
   var today = getTodayKey();
-  if (!dailyStats[today]) {
-    dailyStats = {};
-    dailyStats[today] = { revenue: 0, orders: 0 };
+  if (!dailyShopStats._date || dailyShopStats._date !== today) {
+    dailyShopStats = { _date: today, _totalRevenue: 0, _totalOrders: 0 };
   }
-  return dailyStats[today];
+  return dailyShopStats;
+}
+
+function addToShopStats(shopName, amount) {
+  var stats = resetDailyStatsIfNeeded();
+  if (!stats[shopName]) {
+    stats[shopName] = { revenue: 0, orders: 0 };
+  }
+  stats[shopName].revenue += amount;
+  stats[shopName].orders += 1;
+  stats._totalRevenue += amount;
+  stats._totalOrders += 1;
 }
 
 function formatMoney(amount) {
-  return amount.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  return Math.round(amount).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
+function buildRecapMessage() {
+  var stats = resetDailyStatsIfNeeded();
+  var lines = [];
+  var keys = Object.keys(stats);
+  for (var i = 0; i < keys.length; i++) {
+    if (keys[i].charAt(0) === "_") continue;
+    var s = stats[keys[i]];
+    if (s.revenue > 0) {
+      lines.push("   🔹 " + keys[i] + " : " + formatMoney(s.revenue) + " €");
+    }
+  }
+  var recap = "\n📊 <b>Recap du jour :</b>\n" + lines.join("\n") +
+    "\n   ———————————\n" +
+    "   💰 <b>Total : " + formatMoney(stats._totalRevenue) + " € (" + stats._totalOrders + " commande" + (stats._totalOrders > 1 ? "s" : "") + ")</b>";
+  return recap;
 }
 
 async function checkNewOrders() {
@@ -301,7 +328,8 @@ async function checkNewOrders() {
   var amazonAccounts = getAmazonAccounts();
   var now = new Date();
   var startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-  var stats = resetDailyStatsIfNeeded();
+
+  resetDailyStatsIfNeeded();
 
   // Shopify
   for (var i = 0; i < shops.length; i++) {
@@ -314,16 +342,12 @@ async function checkNewOrders() {
         if (!knownOrderIds[orderId]) {
           knownOrderIds[orderId] = true;
           var amount = parseFloat(order.total_price || 0);
+          addToShopStats(shop.name, amount);
           if (!firstRun) {
-            stats.revenue += amount;
-            stats.orders += 1;
             var msg = "🛒 <b>Nouvelle commande sur " + shop.name + " !</b>\n" +
-              "💰 Montant : " + formatMoney(amount) + " €\n" +
-              "📊 Recap du jour : " + formatMoney(stats.revenue) + " € (" + stats.orders + " commande" + (stats.orders > 1 ? "s" : "") + ")";
+              "💰 Montant : " + formatMoney(amount) + " €" +
+              buildRecapMessage();
             await sendTelegram(msg);
-          } else {
-            stats.revenue += amount;
-            stats.orders += 1;
           }
         }
       }
@@ -346,16 +370,12 @@ async function checkNewOrders() {
           if (amzOrder.OrderTotal && amzOrder.OrderTotal.Amount) {
             amzAmount = parseFloat(amzOrder.OrderTotal.Amount);
           }
+          addToShopStats(account.name, amzAmount);
           if (!firstRun) {
-            stats.revenue += amzAmount;
-            stats.orders += 1;
             var amzMsg = "📦 <b>Nouvelle commande sur " + account.name + " !</b>\n" +
-              "💰 Montant : " + formatMoney(amzAmount) + " €\n" +
-              "📊 Recap du jour : " + formatMoney(stats.revenue) + " € (" + stats.orders + " commande" + (stats.orders > 1 ? "s" : "") + ")";
+              "💰 Montant : " + formatMoney(amzAmount) + " €" +
+              buildRecapMessage();
             await sendTelegram(amzMsg);
-          } else {
-            stats.revenue += amzAmount;
-            stats.orders += 1;
           }
         }
       }
@@ -366,15 +386,15 @@ async function checkNewOrders() {
 
   if (firstRun) {
     firstRun = false;
-    console.log("Premier scan: " + stats.orders + " commandes du jour detectees (" + formatMoney(stats.revenue) + " EUR)");
+    var stats = resetDailyStatsIfNeeded();
+    console.log("Premier scan: " + stats._totalOrders + " commandes du jour detectees (" + formatMoney(stats._totalRevenue) + " EUR)");
   }
 }
 
-// Verifier les nouvelles commandes toutes les 60 secondes
 setInterval(checkNewOrders, 60 * 1000);
 
 // ============================================================
-// TOTAL (Shopify + Amazon) pour le compteur SMIIRL
+// TOTAL pour le compteur SMIIRL
 // ============================================================
 
 var cachedNumber = 0;
@@ -395,8 +415,9 @@ async function getTotalRevenue() {
 
   for (var i = 0; i < shops.length; i++) {
     var orders = await getShopifyOrders(shops[i], startOfYear);
-    total += getShopifyRevenue(orders);
-    console.log("Shopify " + shops[i].name + ": " + getShopifyRevenue(orders).toFixed(2) + " EUR");
+    var rev = getShopifyRevenue(orders);
+    total += rev;
+    console.log("Shopify " + shops[i].name + ": " + rev.toFixed(2) + " EUR");
   }
 
   for (var j = 0; j < amazonAccounts.length; j++) {
@@ -455,19 +476,21 @@ app.get("/debug", async function (req, res) {
     shops: results,
     total: total.toFixed(2),
     number: Math.round(total),
-    todayRevenue: today.revenue.toFixed(2),
-    todayOrders: today.orders,
+    todayRevenue: today._totalRevenue.toFixed(2),
+    todayOrders: today._totalOrders,
     lastUpdate: new Date().toISOString(),
   });
 });
+
 app.get("/test", async function (req, res) {
-  var stats = resetDailyStatsIfNeeded();
+  addToShopStats("LFC", 1250);
   var msg = "🛒 <b>Nouvelle commande sur LFC !</b>\n" +
-    "💰 Montant : 1 250 €\n" +
-    "📊 Recap du jour : " + formatMoney(stats.revenue + 1250) + " € (" + (stats.orders + 1) + " commande" + (stats.orders + 1 > 1 ? "s" : "") + ")";
+    "💰 Montant : 1 250 €" +
+    buildRecapMessage();
   await sendTelegram(msg);
   res.json({ ok: true, message: "Notification test envoyee !" });
 });
+
 var PORT = process.env.PORT || 3000;
 app.listen(PORT, function () {
   var shops = getShops();
@@ -475,6 +498,5 @@ app.listen(PORT, function () {
   console.log("Serveur SMIIRL demarre sur le port " + PORT);
   console.log(shops.length + " boutique(s) Shopify configuree(s)");
   console.log(amazonAccounts.length + " compte(s) Amazon configure(s)");
-  // Premier scan au demarrage
   checkNewOrders();
 });
