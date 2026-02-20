@@ -10,24 +10,18 @@ function sleep(ms) {
   return new Promise(function(resolve) { setTimeout(resolve, ms); });
 }
 
-async function fetchWithRetry(url, options, retries) {
-  if (!retries) retries = 3;
-  for (var i = 0; i < retries; i++) {
-    try {
-      var response = await fetch(url, options);
-      if (response.status === 429) {
-        var wait = (i + 1) * 30000;
-        console.log("Rate limited, attente " + (wait/1000) + "s...");
-        await sleep(wait);
-        continue;
-      }
-      return response;
-    } catch (error) {
-      console.error("Fetch error: " + error.message);
-      await sleep(5000);
+async function fetchWithRetry(url, options) {
+  try {
+    var response = await fetch(url, options);
+    if (response.status === 429) {
+      console.log("Rate limited Amazon - utilisation du cache");
+      return null;
     }
+    return response;
+  } catch (error) {
+    console.error("Fetch error: " + error.message);
+    return null;
   }
-  return null;
 }
 
 // ============================================================
