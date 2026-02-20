@@ -388,11 +388,12 @@ function formatMoney(amount) {
 
 function getPeriodDates(period) {
   var now = new Date();
+  var paris = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Paris" }));
   var start, end;
-  if (period === "d") { start = new Date(now.getFullYear(), now.getMonth(), now.getDate()); end = now; }
-  else if (period === "h") { start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1); end = new Date(now.getFullYear(), now.getMonth(), now.getDate()); }
-  else if (period === "m") { start = new Date(now.getFullYear(), now.getMonth(), 1); end = now; }
-  else if (period === "a") { start = new Date(now.getFullYear(), 0, 1); end = now; }
+  if (period === "d") { start = new Date(paris.getFullYear(), paris.getMonth(), paris.getDate()); end = now; }
+  else if (period === "h") { start = new Date(paris.getFullYear(), paris.getMonth(), paris.getDate() - 1); end = new Date(paris.getFullYear(), paris.getMonth(), paris.getDate()); }
+  else if (period === "m") { start = new Date(paris.getFullYear(), paris.getMonth(), 1); end = now; }
+  else if (period === "a") { start = new Date(paris.getFullYear(), 0, 1); end = now; }
   else { start = new Date(2020, 0, 1); end = now; }
   return { start: start.toISOString(), end: end.toISOString() };
 }
@@ -1122,12 +1123,13 @@ app.post("/webhook", async function (req, res) {
   if (data.indexOf("tp:") === 0) {
     var tpPeriod = data.substring(3);
     var now5 = new Date();
+    var paris5 = new Date(now5.toLocaleString("en-US", { timeZone: "Europe/Paris" }));
     var tpStart;
     var tpLabel;
-    if (tpPeriod === "d") { tpStart = new Date(now5.getFullYear(), now5.getMonth(), now5.getDate()); tpLabel = "aujourd'hui"; }
-    else if (tpPeriod === "7") { tpStart = new Date(now5.getFullYear(), now5.getMonth(), now5.getDate() - 6); tpLabel = "7 derniers jours"; }
-    else if (tpPeriod === "m") { tpStart = new Date(now5.getFullYear(), now5.getMonth(), 1); tpLabel = MOIS_NAMES[now5.getMonth()]; }
-    else if (tpPeriod === "a") { tpStart = new Date(now5.getFullYear(), 0, 1); tpLabel = "cette annee"; }
+    if (tpPeriod === "d") { tpStart = new Date(paris5.getFullYear(), paris5.getMonth(), paris5.getDate()); tpLabel = "aujourd'hui"; }
+    else if (tpPeriod === "7") { tpStart = new Date(paris5.getFullYear(), paris5.getMonth(), paris5.getDate() - 6); tpLabel = "7 derniers jours"; }
+    else if (tpPeriod === "m") { tpStart = new Date(paris5.getFullYear(), paris5.getMonth(), 1); tpLabel = MOIS_NAMES[paris5.getMonth()]; }
+    else if (tpPeriod === "a") { tpStart = new Date(paris5.getFullYear(), 0, 1); tpLabel = "cette annee"; }
     else { tpStart = new Date(2020, 0, 1); tpLabel = "tout"; }
     await editMessage(chatId, messageId, "\u23F3 <b>Chargement...</b>", null);
     var tpShops = getShops();
