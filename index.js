@@ -24,6 +24,19 @@ async function fetchWithRetry(url, options) {
   }
 }
 
+// Mapping marketplace ID -> pays
+var MARKETPLACE_MAP = {
+  "A13V1IB3VIYZZH": { flag: "🇫🇷", name: "FR" },
+  "A1PA6795UKMFR9": { flag: "🇩🇪", name: "DE" },
+  "A1RKKUPIHCS9HS": { flag: "🇪🇸", name: "ES" },
+  "APJ6JRA9NG5V4": { flag: "🇮🇹", name: "IT" },
+  "A1F83G8C2ARO7P": { flag: "🇬🇧", name: "UK" },
+  "A1805IZSGTT6HS": { flag: "🇳🇱", name: "NL" },
+  "AMEN7PMS3EDWL": { flag: "🇧🇪", name: "BE" },
+  "A2NODRKZP88ZB9": { flag: "🇸🇪", name: "SE" },
+  "A1C3SOZRARQ6R3": { flag: "🇵🇱", name: "PL" }
+};
+
 // ============================================================
 // TELEGRAM
 // ============================================================
@@ -126,7 +139,7 @@ async function getShopifyOrders(shop, since) {
 }
 
 // ============================================================
-// AMAZON (avec cache agressif)
+// AMAZON
 // ============================================================
 
 function getAmazonAccounts() {
@@ -162,7 +175,6 @@ async function getAmazonAccessToken(account) {
   return data.access_token;
 }
 
-// Cache des commandes Amazon
 var amazonOrdersCache = {};
 var amazonFetchLock = false;
 
@@ -191,10 +203,7 @@ async function fetchAmazonOrdersRaw(account, since) {
 async function getAmazonOrdersCached(account, since, cacheKey, cacheDuration) {
   var now = Date.now();
   var cached = amazonOrdersCache[cacheKey];
-  if (cached && now - cached.time < cacheDuration) {
-    return cached.orders;
-  }
-  // Eviter les appels simultanes
+  if (cached && now - cached.time < cacheDuration) { return cached.orders; }
   if (amazonFetchLock) {
     if (cached) return cached.orders;
     return [];
@@ -204,9 +213,17 @@ async function getAmazonOrdersCached(account, since, cacheKey, cacheDuration) {
     var orders = await fetchAmazonOrdersRaw(account, since);
     amazonOrdersCache[cacheKey] = { orders: orders, time: now };
     return orders;
-  } finally {
-    amazonFetchLock = false;
+  } finally { amazonFetchLock = false; }
+}
+
+function filterOrdersByMarketplace(orders, marketplaceId) {
+  var filtered = [];
+  for (var i = 0; i < orders.length; i++) {
+    if (orders[i].MarketplaceId === marketplaceId) {
+      filtered.push(orders[i]);
+    }
   }
+  return filtered;
 }
 
 // ============================================================
@@ -246,13 +263,14 @@ function getAmazonRevenue(orders) {
   return total;
 }
 
-async function getStatsForShop(shopName, period) {
+async function getStatsForShop(shopName, period, marketplaceId) {
   var dates = getPeriodDates(period);
   var shops = getShops();
   var amazonAccounts = getAmazonAccounts();
   var revenue = 0;
   var orderCount = 0;
 
+  // ALL AMAZON
   if (shopName === "ALL_AMAZON") {
     for (var a = 0; a < amazonAccounts.length; a++) {
       var allAmzOrders = await getAmazonOrdersCached(amazonAccounts[a], dates.start, "stats_amazon_" + period, 5 * 60 * 1000);
@@ -262,6 +280,18 @@ async function getStatsForShop(shopName, period) {
     return { revenue: revenue, orders: orderCount };
   }
 
+  // Amazon par pays
+  if (marketplaceId) {
+    for (var b = 0; b < amazonAccounts.length; b++) {
+      var amzOrdersAll = await getAmazonOrdersCached(amazonAccounts[b], dates.start, "stats_amazon_" + period, 5 * 60 * 1000);
+      var filtered = filterOrdersByMarketplace(amzOrdersAll, marketplaceId);
+      revenue += getAmazonRevenue(filtered);
+      orderCount += filtered.length;
+    }
+    return { revenue: revenue, orders: orderCount };
+  }
+
+  // Shopify
   for (var i = 0; i < shops.length; i++) {
     if (shops[i].name === shopName) {
       var orders = await getShopifyOrders(shops[i], dates.start);
@@ -272,14 +302,6 @@ async function getStatsForShop(shopName, period) {
           orderCount += 1;
         }
       }
-    }
-  }
-
-  for (var k = 0; k < amazonAccounts.length; k++) {
-    if (amazonAccounts[k].name === shopName) {
-      var amzOrders = await getAmazonOrdersCached(amazonAccounts[k], dates.start, "stats_" + shopName + "_" + period, 5 * 60 * 1000);
-      revenue += getAmazonRevenue(amzOrders);
-      orderCount += amzOrders.length;
     }
   }
 
@@ -319,7 +341,6 @@ async function getStatsForAll(period) {
 
 function getShopButtons() {
   var shops = getShops();
-  var amazonAccounts = getAmazonAccounts();
   var buttons = [];
   var row = [];
   for (var i = 0; i < shops.length; i++) {
@@ -327,15 +348,23 @@ function getShopButtons() {
     if (row.length === 4) { buttons.push(row); row = []; }
   }
   if (row.length > 0) { buttons.push(row); row = []; }
-  for (var j = 0; j < amazonAccounts.length; j++) {
-    row.push({ text: amazonAccounts[j].name, callback_data: "s:" + amazonAccounts[j].name });
+  buttons.push([{ text: "📦 Amazon EU", callback_data: "amz_menu" }]);
+  buttons.push([{ text: "🌍 ALL", callback_data: "s:ALL" }]);
+  return buttons;
+}
+
+function getAmazonCountryButtons() {
+  var keys = Object.keys(MARKETPLACE_MAP);
+  var buttons = [];
+  var row = [];
+  for (var i = 0; i < keys.length; i++) {
+    var mp = MARKETPLACE_MAP[keys[i]];
+    row.push({ text: mp.flag + " " + mp.name, callback_data: "amz:" + keys[i] });
     if (row.length === 3) { buttons.push(row); row = []; }
   }
   if (row.length > 0) buttons.push(row);
-  buttons.push([
-    { text: "📦 ALL AMAZON", callback_data: "s:ALL_AMAZON" },
-    { text: "🌍 ALL", callback_data: "s:ALL" }
-  ]);
+  buttons.push([{ text: "📦 ALL AMAZON", callback_data: "s:ALL_AMAZON" }]);
+  buttons.push([{ text: "⬅️ Retour", callback_data: "back" }]);
   return buttons;
 }
 
@@ -350,6 +379,23 @@ function getPeriodButtons(shopName) {
       { text: "📊 Cette annee", callback_data: "p:" + shopName + ":a" }
     ],
     [
+      { text: "⬅️ Retour", callback_data: "back" }
+    ]
+  ];
+}
+
+function getAmzPeriodButtons(marketplaceId) {
+  return [
+    [
+      { text: "📅 Aujourd'hui", callback_data: "ap:" + marketplaceId + ":d" },
+      { text: "⏪ Hier", callback_data: "ap:" + marketplaceId + ":h" }
+    ],
+    [
+      { text: "📆 Ce mois", callback_data: "ap:" + marketplaceId + ":m" },
+      { text: "📊 Cette annee", callback_data: "ap:" + marketplaceId + ":a" }
+    ],
+    [
+      { text: "⬅️ Retour pays", callback_data: "amz_menu" },
       { text: "⬅️ Retour", callback_data: "back" }
     ]
   ];
@@ -429,7 +475,6 @@ async function checkNewOrders() {
     } catch (error) { console.error("Erreur check " + shop.name + ": " + error.message); }
   }
 
-  // Amazon - cache de 5 min pour le scan
   for (var k = 0; k < amazonAccounts.length; k++) {
     var account = amazonAccounts[k];
     try {
@@ -441,9 +486,11 @@ async function checkNewOrders() {
           knownOrderIds[amzOrderId] = true;
           var amzAmount = 0;
           if (amzOrder.OrderTotal && amzOrder.OrderTotal.Amount) { amzAmount = parseFloat(amzOrder.OrderTotal.Amount); }
-          addToShopStats(account.name, amzAmount);
+          var mpInfo = MARKETPLACE_MAP[amzOrder.MarketplaceId];
+          var amzLabel = mpInfo ? mpInfo.flag + " AMZ " + mpInfo.name : account.name;
+          addToShopStats(amzLabel, amzAmount);
           if (!firstRun) {
-            var amzMsg = "📦 <b>Nouvelle commande sur " + account.name + " !</b>\n" +
+            var amzMsg = "📦 <b>Nouvelle commande sur " + amzLabel + " !</b>\n" +
               "💰 Montant : " + formatMoney(amzAmount) + " €" + buildRecapMessage();
             await sendTelegram(amzMsg, getShopButtons());
           }
@@ -467,6 +514,7 @@ setInterval(checkNewOrders, 60 * 1000);
 
 app.post("/webhook", async function (req, res) {
   res.json({ ok: true });
+
   // Commande /stats
   if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/stats") === 0) {
     var stats = resetDailyStatsIfNeeded();
@@ -484,26 +532,61 @@ app.post("/webhook", async function (req, res) {
   await answerCallback(callbackId);
   if (!data || !chatId || !messageId) return;
 
+  // Retour menu principal
   if (data === "back") {
     await editMessage(chatId, messageId, "🏪 <b>Choisissez une boutique :</b>", getShopButtons());
     return;
   }
+
+  // Menu Amazon pays
+  if (data === "amz_menu") {
+    await editMessage(chatId, messageId, "📦 <b>Amazon - Choisissez un pays :</b>", getAmazonCountryButtons());
+    return;
+  }
+
+  // Selection pays Amazon
+  if (data.indexOf("amz:") === 0) {
+    var mpId = data.substring(4);
+    var mpInfo = MARKETPLACE_MAP[mpId];
+    var label = mpInfo ? mpInfo.flag + " Amazon " + mpInfo.name : "Amazon";
+    await editMessage(chatId, messageId, "📦 <b>" + label + "</b>\n\n📅 Choisissez une periode :", getAmzPeriodButtons(mpId));
+    return;
+  }
+
+  // Periode Amazon par pays
+  if (data.indexOf("ap:") === 0) {
+    var parts = data.split(":");
+    var aMpId = parts[1];
+    var aPeriod = parts[2];
+    var aMpInfo = MARKETPLACE_MAP[aMpId];
+    var aLabel = aMpInfo ? aMpInfo.flag + " Amazon " + aMpInfo.name : "Amazon";
+    var aPeriodLabel = getPeriodLabel(aPeriod);
+    await editMessage(chatId, messageId, "⏳ <b>Chargement " + aLabel + " - " + aPeriodLabel + "...</b>", null);
+    var aStats = await getStatsForShop(null, aPeriod, aMpId);
+    var aResultMsg = "📦 <b>" + aLabel + " - " + aPeriodLabel + "</b>\n\n💰 CA : " + formatMoney(aStats.revenue) + " €\n📦 Commandes : " + aStats.orders;
+    await editMessage(chatId, messageId, aResultMsg, getAmzPeriodButtons(aMpId));
+    return;
+  }
+
+  // Selection boutique Shopify
   if (data.indexOf("s:") === 0) {
     var shopName = data.substring(2);
     await editMessage(chatId, messageId, "🏪 <b>" + shopName + "</b>\n\n📅 Choisissez une periode :", getPeriodButtons(shopName));
     return;
   }
+
+  // Periode Shopify / ALL / ALL_AMAZON
   if (data.indexOf("p:") === 0) {
-    var parts = data.split(":");
-    var pShopName = parts[1];
-    var period = parts[2];
+    var pParts = data.split(":");
+    var pShopName = pParts[1];
+    var period = pParts[2];
     var periodLabel = getPeriodLabel(period);
     await editMessage(chatId, messageId, "⏳ <b>Chargement " + pShopName + " - " + periodLabel + "...</b>", null);
-    var stats;
-    if (pShopName === "ALL") { stats = await getStatsForAll(period); }
-    else { stats = await getStatsForShop(pShopName, period); }
-    var resultMsg = "🏪 <b>" + pShopName + " - " + periodLabel + "</b>\n\n💰 CA : " + formatMoney(stats.revenue) + " €\n📦 Commandes : " + stats.orders;
-    await editMessage(chatId, messageId, resultMsg, getPeriodButtons(pShopName));
+    var pStats;
+    if (pShopName === "ALL") { pStats = await getStatsForAll(period); }
+    else { pStats = await getStatsForShop(pShopName, period, null); }
+    var pResultMsg = "🏪 <b>" + pShopName + " - " + periodLabel + "</b>\n\n💰 CA : " + formatMoney(pStats.revenue) + " €\n📦 Commandes : " + pStats.orders;
+    await editMessage(chatId, messageId, pResultMsg, getPeriodButtons(pShopName));
     return;
   }
 });
@@ -572,6 +655,5 @@ app.listen(PORT, function () {
   console.log("Serveur SMIIRL demarre sur le port " + PORT);
   console.log(shops.length + " boutique(s) Shopify");
   console.log(amazonAccounts.length + " compte(s) Amazon");
-  // Attendre 30s avant le premier scan pour ne pas surcharger Amazon
   setTimeout(checkNewOrders, 30000);
 });
