@@ -641,7 +641,8 @@ async function checkNewOrders() {
   var shops = getShops();
   var amazonAccounts = getAmazonAccounts();
   var now = new Date();
-  var startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  var paris = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Paris" }));
+  var startOfDay = new Date(Date.UTC(paris.getFullYear(), paris.getMonth(), paris.getDate()) - 1 * 60 * 60 * 1000).toISOString();
   resetDailyStatsIfNeeded();
   var grosseCommandeSeuil = parseFloat(process.env.ALERTE_GROSSE_COMMANDE || "1000");
 
