@@ -16,7 +16,7 @@ async function fetchWithRetry(url, options, retries) {
     try {
       var response = await fetch(url, options);
       if (response.status === 429) {
-        var wait = (i + 1) * 10000;
+        var wait = (i + 1) * 30000;
         console.log("Rate limited, attente " + (wait/1000) + "s...");
         await sleep(wait);
         continue;
@@ -439,7 +439,7 @@ async function checkNewOrders() {
   for (var k = 0; k < amazonAccounts.length; k++) {
     var account = amazonAccounts[k];
     try {
-      var amzOrders = await getAmazonOrdersCached(account, startOfDay, "scan_" + account.name, 5 * 60 * 1000);
+      var amzOrders = await getAmazonOrdersCached(account, startOfDay, "scan_" + account.name, 10 * 60 * 1000);
       for (var l = 0; l < amzOrders.length; l++) {
         var amzOrder = amzOrders[l];
         var amzOrderId = "amazon_" + account.name + "_" + amzOrder.AmazonOrderId;
@@ -570,5 +570,6 @@ app.listen(PORT, function () {
   console.log("Serveur SMIIRL demarre sur le port " + PORT);
   console.log(shops.length + " boutique(s) Shopify");
   console.log(amazonAccounts.length + " compte(s) Amazon");
-  checkNewOrders();
+  // Attendre 30s avant le premier scan pour ne pas surcharger Amazon
+  setTimeout(checkNewOrders, 30000);
 });
