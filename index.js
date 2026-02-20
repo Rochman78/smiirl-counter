@@ -579,18 +579,6 @@ app.get("/debug", async function (req, res) {
   res.json({ shops: results, total: total.toFixed(2), number: Math.round(total), todayRevenue: today._totalRevenue.toFixed(2), todayOrders: today._totalOrders, lastUpdate: new Date().toISOString() });
 });
 
-app.get("/test", async function (req, res) {
-  addToShopStats("LFC", 3500);
-  addToShopStats("RED", 1200);
-  addToShopStats("HET", 800);
-  addToShopStats("MTC", 450);
-  addToShopStats("Amazon FR", 2100);
-  var msg = "🛒 <b>Nouvelle commande sur LFC !</b>\n" +
-    "💰 Montant : 1 250 €" + buildRecapMessage();
-  await sendTelegram(msg, getShopButtons());
-  res.json({ ok: true, message: "Notification test envoyee !" });
-});
-
 var PORT = process.env.PORT || 3000;
 app.listen(PORT, function () {
   var shops = getShops();
