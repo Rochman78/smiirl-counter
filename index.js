@@ -483,7 +483,11 @@ app.get("/debug", async function (req, res) {
 });
 
 app.get("/test", async function (req, res) {
-  addToShopStats("LFC", 1250);
+  addToShopStats("LFC", 3500);
+  addToShopStats("RED", 1200);
+  addToShopStats("HET", 800);
+  addToShopStats("MTC", 450);
+  addToShopStats("Amazon FR", 2100);
   var msg = "🛒 <b>Nouvelle commande sur LFC !</b>\n" +
     "💰 Montant : 1 250 €" +
     buildRecapMessage();
