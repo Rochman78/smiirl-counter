@@ -196,6 +196,10 @@ async function getAmazonOrders(account, since) {
 // HELPERS
 // ============================================================
 
+function sleep(ms) {
+  return new Promise(function(resolve) { setTimeout(resolve, ms); });
+}
+
 function formatMoney(amount) {
   return Math.round(amount).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
@@ -239,6 +243,7 @@ async function getStatsForShop(shopName, period) {
 
   if (shopName === "ALL_AMAZON") {
     for (var a = 0; a < amazonAccounts.length; a++) {
+      if (a > 0) await sleep(2000);
       var allAmzOrders = await getAmazonOrders(amazonAccounts[a], dates.start);
       for (var b = 0; b < allAmzOrders.length; b++) {
         if (allAmzOrders[b].OrderTotal && allAmzOrders[b].OrderTotal.Amount) {
@@ -429,6 +434,7 @@ async function checkNewOrders() {
 
   for (var k = 0; k < amazonAccounts.length; k++) {
     var account = amazonAccounts[k];
+    if (k > 0) await sleep(2000);
     try {
       var amzOrders = await getAmazonOrders(account, startOfDay);
       for (var l = 0; l < amzOrders.length; l++) {
@@ -555,6 +561,7 @@ async function getTotalRevenue() {
     for (var j = 0; j < orders.length; j++) { total += parseFloat(orders[j].total_price || 0); }
   }
   for (var k = 0; k < amazonAccounts.length; k++) {
+    if (k > 0) await sleep(2000);
     var amzOrders = await getAmazonOrders(amazonAccounts[k], startOfYear);
     for (var l = 0; l < amzOrders.length; l++) {
       if (amzOrders[l].OrderTotal && amzOrders[l].OrderTotal.Amount) { total += parseFloat(amzOrders[l].OrderTotal.Amount); }
@@ -586,6 +593,7 @@ app.get("/debug", async function (req, res) {
     results.push({ source: "Shopify", name: shops[i].name, revenue: rev.toFixed(2) });
   }
   for (var k = 0; k < amazonAccounts.length; k++) {
+    if (k > 0) await sleep(2000);
     var amzOrders = await getAmazonOrders(amazonAccounts[k], startOfYear);
     var amzRev = 0; for (var l = 0; l < amzOrders.length; l++) { if (amzOrders[l].OrderTotal) { amzRev += parseFloat(amzOrders[l].OrderTotal.Amount); } }
     results.push({ source: "Amazon", name: amazonAccounts[k].name, revenue: amzRev.toFixed(2) });
