@@ -1129,7 +1129,7 @@ app.post("/webhook", async function (req, res) {
     for (var tpl = 0; tpl < tpKeys.length; tpl++) {
       tpList.push({ sku: tpKeys[tpl], name: tpMap[tpKeys[tpl]].name, variant: tpMap[tpKeys[tpl]].variant, qty: tpMap[tpKeys[tpl]].qty, revenue: tpMap[tpKeys[tpl]].revenue });
     }
-    tpList.sort(function(a, b) { return b.revenue - a.revenue; });
+    tpList.sort(function(a, b) { return b.qty - a.qty; });
     var tpN = Math.min(tpList.length, 10);
     var tpMedals = ["\uD83E\uDD47", "\uD83E\uDD48", "\uD83E\uDD49"];
     var tpLines = [];
@@ -1137,7 +1137,7 @@ app.post("/webhook", async function (req, res) {
       var tpMedal = tpm < 3 ? tpMedals[tpm] : (tpm + 1) + ".";
       var tpDisplayName = tpList[tpm].name.substring(0, 35);
       if (tpList[tpm].variant) { tpDisplayName += " (" + tpList[tpm].variant.substring(0, 15) + ")"; }
-      tpLines.push(tpMedal + " <b>" + tpDisplayName + "</b>\n     \uD83D\uDCB0 " + formatMoney(tpList[tpm].revenue) + " \u20ac \u00b7 " + tpList[tpm].qty + " vendus\n     SKU: <code>" + tpList[tpm].sku + "</code>");
+      tpLines.push(tpMedal + " <b>" + tpDisplayName + "</b>\n     \uD83D\uDCB0 " + formatMoney(tpList[tpm].revenue) + " \u20ac \u00b7 " + tpList[tpm].qty + " vendus");
     }
     var tpMsg = "\uD83C\uDFC6 <b>Top 10 produits (" + tpLabel + ")</b>\n<i>(Shopify - par SKU)</i>\n\n";
     if (tpLines.length === 0) { tpMsg += "Aucune vente sur cette periode."; }
