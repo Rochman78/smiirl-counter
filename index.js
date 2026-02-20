@@ -42,16 +42,108 @@ function getParisDay() {
   return paris.getDay();
 }
 
+// ============================================================
+// MESSAGES MOTIVATION ALEATOIRES
+// ============================================================
+
+var MOTIVATION_MESSAGES = [
+  "Ca envoie du lourd !",
+  "La machine est lancee !",
+  "Les ventes pleuvent !",
+  "Inarretable !",
+  "On lache rien !",
+  "Le compteur s'affole !",
+  "Encore une ! Continue comme ca !",
+  "Business is booming !",
+  "Chef, ca tourne !",
+  "Money money money !",
+  "La caisse enregistreuse chauffe !",
+  "Une de plus dans la besace !",
+  "Le talent ne ment pas !",
+  "Ding ding ding ! Jackpot !",
+  "T'es on fire aujourd'hui !",
+  "Ca ne s'arrete plus !",
+  "Le business tourne a plein regime !",
+  "Unstoppable !",
+  "Les clients adorent !",
+  "Quelle journee de malade !"
+];
+
+function getMotivation() {
+  return MOTIVATION_MESSAGES[Math.floor(Math.random() * MOTIVATION_MESSAGES.length)];
+}
+
+// ============================================================
+// MILESTONES
+// ============================================================
+
+var milestonesOrdersSent = {};
+var milestonesRevenueSent = {};
+
+var ORDER_MILESTONES = [10, 25, 50, 75, 100, 150, 200, 250, 300, 400, 500, 750, 1000];
+var REVENUE_MILESTONES = [1000, 2500, 5000, 7500, 10000, 15000, 20000, 25000, 30000, 40000, 50000, 75000, 100000];
+
+async function checkMilestones(stats) {
+  for (var i = 0; i < ORDER_MILESTONES.length; i++) {
+    var m = ORDER_MILESTONES[i];
+    if (stats._totalOrders >= m && !milestonesOrdersSent[m]) {
+      milestonesOrdersSent[m] = true;
+      var msg = "\uD83C\uDF89 <b>MILESTONE !</b>\n\n" +
+        "\uD83D\uDCE6 <b>" + m + "eme commande du jour !</b>\n" +
+        "\uD83D\uDCB0 CA : " + formatMoney(stats._totalRevenue) + " \u20ac\n\n" +
+        "On continue ! \uD83D\uDE80";
+      await sendTelegram(msg, null);
+    }
+  }
+  for (var j = 0; j < REVENUE_MILESTONES.length; j++) {
+    var r = REVENUE_MILESTONES[j];
+    if (stats._totalRevenue >= r && !milestonesRevenueSent[r]) {
+      milestonesRevenueSent[r] = true;
+      var rMsg = "\uD83C\uDF89 <b>MILESTONE !</b>\n\n" +
+        "\uD83D\uDCB0 <b>" + formatMoney(r) + " \u20ac atteints aujourd'hui !</b>\n" +
+        "\uD83D\uDCE6 " + stats._totalOrders + " commandes\n\n" +
+        "Enorme ! \uD83D\uDCAA";
+      await sendTelegram(rMsg, null);
+    }
+  }
+}
+
+// ============================================================
+// STREAK OBJECTIF
+// ============================================================
+
+var streakDays = 0;
+var lastStreakDate = "";
+
+function updateStreak(todayReached) {
+  var now = new Date();
+  var paris = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Paris" }));
+  var todayStr = paris.getFullYear() + "-" + String(paris.getMonth() + 1).padStart(2, "0") + "-" + String(paris.getDate()).padStart(2, "0");
+  if (todayStr === lastStreakDate) return streakDays;
+  if (todayReached) {
+    var yesterday = new Date(paris);
+    yesterday.setDate(yesterday.getDate() - 1);
+    var yesterdayStr = yesterday.getFullYear() + "-" + String(yesterday.getMonth() + 1).padStart(2, "0") + "-" + String(yesterday.getDate()).padStart(2, "0");
+    if (lastStreakDate === yesterdayStr) {
+      streakDays += 1;
+    } else {
+      streakDays = 1;
+    }
+    lastStreakDate = todayStr;
+  }
+  return streakDays;
+}
+
 var MARKETPLACE_MAP = {
-  "A13V1IB3VIYZZH": { flag: "\ud83c\uddeb\ud83c\uddf7", name: "FR" },
-  "A1PA6795UKMFR9": { flag: "\ud83c\udde9\ud83c\uddea", name: "DE" },
-  "A1RKKUPIHCS9HS": { flag: "\ud83c\uddea\ud83c\uddf8", name: "ES" },
-  "APJ6JRA9NG5V4": { flag: "\ud83c\uddee\ud83c\uddf9", name: "IT" },
-  "A1F83G8C2ARO7P": { flag: "\ud83c\uddec\ud83c\udde7", name: "UK" },
-  "A1805IZSGTT6HS": { flag: "\ud83c\uddf3\ud83c\uddf1", name: "NL" },
-  "AMEN7PMS3EDWL": { flag: "\ud83c\udde7\ud83c\uddea", name: "BE" },
-  "A2NODRKZP88ZB9": { flag: "\ud83c\uddf8\ud83c\uddea", name: "SE" },
-  "A1C3SOZRARQ6R3": { flag: "\ud83c\uddf5\ud83c\uddf1", name: "PL" }
+  "A13V1IB3VIYZZH": { flag: "\uD83C\uDDEB\uD83C\uDDF7", name: "FR" },
+  "A1PA6795UKMFR9": { flag: "\uD83C\uDDE9\uD83C\uDDEA", name: "DE" },
+  "A1RKKUPIHCS9HS": { flag: "\uD83C\uDDEA\uD83C\uDDF8", name: "ES" },
+  "APJ6JRA9NG5V4": { flag: "\uD83C\uDDEE\uD83C\uDDF9", name: "IT" },
+  "A1F83G8C2ARO7P": { flag: "\uD83C\uDDEC\uD83C\uDDE7", name: "UK" },
+  "A1805IZSGTT6HS": { flag: "\uD83C\uDDF3\uD83C\uDDF1", name: "NL" },
+  "AMEN7PMS3EDWL": { flag: "\uD83C\uDDE7\uD83C\uDDEA", name: "BE" },
+  "A2NODRKZP88ZB9": { flag: "\uD83C\uDDF8\uD83C\uDDEA", name: "SE" },
+  "A1C3SOZRARQ6R3": { flag: "\uD83C\uDDF5\uD83C\uDDF1", name: "PL" }
 };
 
 // ============================================================
@@ -184,7 +276,7 @@ async function getShopifyOrders(shop, since) {
     else {
       url = "https://" + shop.domain + "/admin/api/2024-01/orders.json" +
         "?status=any&financial_status=paid,partially_refunded&created_at_min=" + since +
-        "&fields=id,total_price,created_at,name&limit=250";
+        "&fields=id,total_price,created_at,name,line_items&limit=250";
     }
     try {
       var response = await fetch(url, { headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" } });
@@ -321,6 +413,9 @@ function getAmazonRevenue(orders) {
   return total;
 }
 
+var JOUR_NAMES = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
+var MOIS_NAMES = ["Janvier", "Fevrier", "Mars", "Avril", "Mai", "Juin", "Juillet", "Aout", "Septembre", "Octobre", "Novembre", "Decembre"];
+
 async function getStatsForShop(shopName, period, marketplaceId) {
   var dates = getPeriodDates(period);
   var shops = getShops();
@@ -396,7 +491,7 @@ async function getStatsForAll(period) {
 
 function getMainButtons() {
   return [
-    [{ text: "\ud83d\udcb8 Ventes", callback_data: "menu_ventes" }]
+    [{ text: "\uD83D\uDCB8 Ventes", callback_data: "menu_ventes" }]
   ];
 }
 
@@ -409,9 +504,9 @@ function getShopButtons() {
     if (row.length === 4) { buttons.push(row); row = []; }
   }
   if (row.length > 0) { buttons.push(row); row = []; }
-  buttons.push([{ text: "\ud83d\udce6 Amazon EU", callback_data: "amz_menu" }]);
-  buttons.push([{ text: "\ud83c\udf0d ALL", callback_data: "s:ALL" }]);
-  buttons.push([{ text: "\u2b05\ufe0f Retour", callback_data: "main_menu" }]);
+  buttons.push([{ text: "\uD83D\uDCE6 Amazon EU", callback_data: "amz_menu" }]);
+  buttons.push([{ text: "\uD83C\uDF0D ALL", callback_data: "s:ALL" }]);
+  buttons.push([{ text: "\u2B05\uFE0F Retour", callback_data: "main_menu" }]);
   return buttons;
 }
 
@@ -425,23 +520,23 @@ function getAmazonCountryButtons() {
     if (row.length === 3) { buttons.push(row); row = []; }
   }
   if (row.length > 0) buttons.push(row);
-  buttons.push([{ text: "\ud83d\udce6 ALL AMAZON", callback_data: "s:ALL_AMAZON" }]);
-  buttons.push([{ text: "\u2b05\ufe0f Retour", callback_data: "menu_ventes" }]);
+  buttons.push([{ text: "\uD83D\uDCE6 ALL AMAZON", callback_data: "s:ALL_AMAZON" }]);
+  buttons.push([{ text: "\u2B05\uFE0F Retour", callback_data: "menu_ventes" }]);
   return buttons;
 }
 
 function getPeriodButtons(shopName) {
   return [
     [
-      { text: "\ud83d\udcc5 Aujourd'hui", callback_data: "p:" + shopName + ":d" },
-      { text: "\u23ea Hier", callback_data: "p:" + shopName + ":h" }
+      { text: "\uD83D\uDCC5 Aujourd'hui", callback_data: "p:" + shopName + ":d" },
+      { text: "\u23EA Hier", callback_data: "p:" + shopName + ":h" }
     ],
     [
-      { text: "\ud83d\udcc6 Ce mois", callback_data: "p:" + shopName + ":m" },
-      { text: "\ud83d\udcca Cette annee", callback_data: "p:" + shopName + ":a" }
+      { text: "\uD83D\uDCC6 Ce mois", callback_data: "p:" + shopName + ":m" },
+      { text: "\uD83D\uDCCA Cette annee", callback_data: "p:" + shopName + ":a" }
     ],
     [
-      { text: "\u2b05\ufe0f Retour", callback_data: "menu_ventes" }
+      { text: "\u2B05\uFE0F Retour", callback_data: "menu_ventes" }
     ]
   ];
 }
@@ -449,16 +544,16 @@ function getPeriodButtons(shopName) {
 function getAmzPeriodButtons(marketplaceId) {
   return [
     [
-      { text: "\ud83d\udcc5 Aujourd'hui", callback_data: "ap:" + marketplaceId + ":d" },
-      { text: "\u23ea Hier", callback_data: "ap:" + marketplaceId + ":h" }
+      { text: "\uD83D\uDCC5 Aujourd'hui", callback_data: "ap:" + marketplaceId + ":d" },
+      { text: "\u23EA Hier", callback_data: "ap:" + marketplaceId + ":h" }
     ],
     [
-      { text: "\ud83d\udcc6 Ce mois", callback_data: "ap:" + marketplaceId + ":m" },
-      { text: "\ud83d\udcca Cette annee", callback_data: "ap:" + marketplaceId + ":a" }
+      { text: "\uD83D\uDCC6 Ce mois", callback_data: "ap:" + marketplaceId + ":m" },
+      { text: "\uD83D\uDCCA Cette annee", callback_data: "ap:" + marketplaceId + ":a" }
     ],
     [
-      { text: "\u2b05\ufe0f Retour pays", callback_data: "amz_menu" },
-      { text: "\u2b05\ufe0f Retour", callback_data: "menu_ventes" }
+      { text: "\u2B05\uFE0F Retour pays", callback_data: "amz_menu" },
+      { text: "\u2B05\uFE0F Retour", callback_data: "menu_ventes" }
     ]
   ];
 }
@@ -482,6 +577,8 @@ function resetDailyStatsIfNeeded() {
   if (!dailyShopStats._date || dailyShopStats._date !== today) {
     dailyShopStats = { _date: today, _totalRevenue: 0, _totalOrders: 0 };
     objectifAlertSent = false;
+    milestonesOrdersSent = {};
+    milestonesRevenueSent = {};
   }
   return dailyShopStats;
 }
@@ -505,13 +602,13 @@ function buildTopBoutiques() {
     if (s.revenue > 0) { shops.push({ name: keys[i], revenue: s.revenue, orders: s.orders }); }
   }
   shops.sort(function(a, b) { return b.revenue - a.revenue; });
-  var medals = ["\ud83e\udd47", "\ud83e\udd48", "\ud83e\udd49"];
+  var medals = ["\uD83E\uDD47", "\uD83E\uDD48", "\uD83E\uDD49"];
   var lines = [];
   for (var j = 0; j < shops.length; j++) {
     var medal = j < 3 ? medals[j] : "   ";
     var pct = stats._totalRevenue > 0 ? ((shops[j].revenue / stats._totalRevenue) * 100).toFixed(1) : "0";
     var avg = shops[j].orders > 0 ? Math.round(shops[j].revenue / shops[j].orders) : 0;
-    lines.push(medal + " <b>" + shops[j].name + "</b>\n     \ud83d\udcb0 " + formatMoney(shops[j].revenue) + " \u20ac (" + pct + "%)\n     \ud83d\uded2 " + shops[j].orders + " cmd \u00b7 \u00d8 " + formatMoney(avg) + " \u20ac");
+    lines.push(medal + " <b>" + shops[j].name + "</b>\n     \uD83D\uDCB0 " + formatMoney(shops[j].revenue) + " \u20ac (" + pct + "%)\n     \uD83D\uDED2 " + shops[j].orders + " cmd \u00b7 \u00d8 " + formatMoney(avg) + " \u20ac");
   }
   return lines.join("\n\n");
 }
@@ -523,13 +620,16 @@ async function buildRecapMessage() {
   var progressLine = "";
   if (objectif > 0) {
     var bar = buildProgressBar(stats._totalRevenue, objectif);
-    progressLine = "\n\n\ud83c\udfaf <b>Objectif : " + formatMoney(objectif) + " \u20ac</b>\n" + bar;
+    progressLine = "\n\n\uD83C\uDFAF <b>Objectif : " + formatMoney(objectif) + " \u20ac</b>\n" + bar;
+    if (streakDays > 1) {
+      progressLine += "\n\uD83D\uDD25 <b>Streak : " + streakDays + " jours consecutifs !</b>";
+    }
   }
   var globalAvg = stats._totalOrders > 0 ? Math.round(stats._totalRevenue / stats._totalOrders) : 0;
-  return "\n\n\ud83d\udcca <b>Recap du jour :</b>\n\n" + top +
+  return "\n\n\uD83D\uDCCA <b>Recap du jour :</b>\n\n" + top +
     "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n" +
-    "\ud83d\udcb0 <b>Total : " + formatMoney(stats._totalRevenue) + " \u20ac (" + stats._totalOrders + " commande" + (stats._totalOrders > 1 ? "s" : "") + ")</b>\n" +
-    "\ud83d\uded2 <b>Panier moyen : " + formatMoney(globalAvg) + " \u20ac</b>" +
+    "\uD83D\uDCB0 <b>Total : " + formatMoney(stats._totalRevenue) + " \u20ac (" + stats._totalOrders + " commande" + (stats._totalOrders > 1 ? "s" : "") + ")</b>\n" +
+    "\uD83D\uDED2 <b>Panier moyen : " + formatMoney(globalAvg) + " \u20ac</b>" +
     progressLine;
 }
 
@@ -553,12 +653,13 @@ async function checkNewOrders() {
           var amount = parseFloat(order.total_price || 0);
           addToShopStats(shop.name, amount);
           if (!firstRun) {
-            var emoji = amount >= grosseCommandeSeuil ? "\ud83d\udd25\ud83d\udd25\ud83d\udd25" : "\ud83d\uded2";
-            var bigLabel = amount >= grosseCommandeSeuil ? "\n\ud83d\udc8e <b>GROSSE COMMANDE !</b>" : "";
+            var emoji = amount >= grosseCommandeSeuil ? "\uD83D\uDD25\uD83D\uDD25\uD83D\uDD25" : "\uD83D\uDED2";
+            var bigLabel = amount >= grosseCommandeSeuil ? "\n\uD83D\uDC8E <b>GROSSE COMMANDE !</b>" : "";
             var recap = await buildRecapMessage();
-            var msg = emoji + " <b>Nouvelle commande sur " + shop.name + " !</b>" + bigLabel + "\n\ud83d\udcb0 Montant : " + formatMoney(amount) + " \u20ac" + recap;
+            var msg = emoji + " <b>Nouvelle commande sur " + shop.name + " !</b>" + bigLabel + "\n\uD83D\uDCB0 Montant : " + formatMoney(amount) + " \u20ac\n\n" + getMotivation() + recap;
             await sendTelegram(msg, getMainButtons());
             await checkObjectifAtteint();
+            await checkMilestones(resetDailyStatsIfNeeded());
           }
         }
       }
@@ -580,12 +681,13 @@ async function checkNewOrders() {
           var amzLabel = mpInfo ? mpInfo.flag + " AMZ " + mpInfo.name : account.name;
           addToShopStats(amzLabel, amzAmount);
           if (!firstRun) {
-            var amzEmoji = amzAmount >= grosseCommandeSeuil ? "\ud83d\udd25\ud83d\udd25\ud83d\udd25" : "\ud83d\udce6";
-            var amzBigLabel = amzAmount >= grosseCommandeSeuil ? "\n\ud83d\udc8e <b>GROSSE COMMANDE !</b>" : "";
+            var amzEmoji = amzAmount >= grosseCommandeSeuil ? "\uD83D\uDD25\uD83D\uDD25\uD83D\uDD25" : "\uD83D\uDCE6";
+            var amzBigLabel = amzAmount >= grosseCommandeSeuil ? "\n\uD83D\uDC8E <b>GROSSE COMMANDE !</b>" : "";
             var amzRecap = await buildRecapMessage();
-            var amzMsg = amzEmoji + " <b>Nouvelle commande sur " + amzLabel + " !</b>" + amzBigLabel + "\n\ud83d\udcb0 Montant : " + formatMoney(amzAmount) + " \u20ac" + amzRecap;
+            var amzMsg = amzEmoji + " <b>Nouvelle commande sur " + amzLabel + " !</b>" + amzBigLabel + "\n\uD83D\uDCB0 Montant : " + formatMoney(amzAmount) + " \u20ac\n\n" + getMotivation() + amzRecap;
             await sendTelegram(amzMsg, getMainButtons());
             await checkObjectifAtteint();
+            await checkMilestones(resetDailyStatsIfNeeded());
           }
         }
       }
@@ -605,21 +707,25 @@ async function checkObjectifAtteint() {
   var objectif = await getObjectif();
   if (objectif > 0 && stats._totalRevenue >= objectif) {
     objectifAlertSent = true;
+    updateStreak(true);
     var bar = buildProgressBar(stats._totalRevenue, objectif);
-    var msg = "\ud83c\udfaf\ud83c\udf89 <b>OBJECTIF DU JOUR ATTEINT !</b>\n\n" +
-      "\ud83d\udcb0 " + formatMoney(stats._totalRevenue) + " \u20ac / " + formatMoney(objectif) + " \u20ac\n" +
-      bar + "\n\n" +
-      "Bravo ! \ud83d\ude80";
+    var streakLine = streakDays > 1 ? "\n\uD83D\uDD25 <b>" + streakDays + " jours consecutifs !</b>" : "";
+    var msg = "\uD83C\uDFAF\uD83C\uDF89 <b>OBJECTIF DU JOUR ATTEINT !</b>\n\n" +
+      "\uD83D\uDCB0 " + formatMoney(stats._totalRevenue) + " \u20ac / " + formatMoney(objectif) + " \u20ac\n" +
+      bar + streakLine + "\n\n" +
+      "Bravo ! \uD83D\uDE80";
     await sendTelegram(msg, null);
   }
 }
 
 setInterval(checkNewOrders, 60 * 1000);
 
-// Rapport auto du soir a 20h
-var eveningReportSent = false;
+// ============================================================
+// RAPPORTS AUTOMATIQUES
+// ============================================================
 
-// Rapport hebdo lundi matin 8h
+var eveningReportSent = false;
+var morningReportSent = false;
 var weeklyReportSent = false;
 
 setInterval(async function () {
@@ -627,16 +733,41 @@ setInterval(async function () {
   var minute = getParisMinute();
   var day = getParisDay();
 
+  // Rapport du matin 8h (sauf lundi = rapport hebdo)
+  if (hour === 8 && minute === 0 && !morningReportSent && day !== 1) {
+    morningReportSent = true;
+    try {
+      var yesterdayStats = await getStatsForAll("h");
+      var yAvg = yesterdayStats.orders > 0 ? Math.round(yesterdayStats.revenue / yesterdayStats.orders) : 0;
+      var objectifMatin = await getObjectif();
+      var objectifLine = "";
+      if (objectifMatin > 0) {
+        objectifLine = "\n\n\uD83C\uDFAF <b>Objectif du jour : " + formatMoney(objectifMatin) + " \u20ac</b>\n\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591 0%";
+        if (streakDays > 0) {
+          objectifLine += "\n\uD83D\uDD25 Streak en cours : " + streakDays + " jour" + (streakDays > 1 ? "s" : "");
+        }
+      }
+      var morningMsg = "\u2600\uFE0F <b>Bonjour ! Recap d'hier :</b>\n\n" +
+        "\uD83D\uDCB0 CA : " + formatMoney(yesterdayStats.revenue) + " \u20ac\n" +
+        "\uD83D\uDCE6 Commandes : " + yesterdayStats.orders + "\n" +
+        "\uD83D\uDED2 Panier moyen : " + formatMoney(yAvg) + " \u20ac" +
+        objectifLine + "\n\n" +
+        "Bonne journee ! \uD83D\uDCAA";
+      await sendTelegram(morningMsg, getMainButtons());
+    } catch (error) { console.error("Erreur rapport matin: " + error.message); }
+  }
+  if (hour === 8 && minute === 1) { morningReportSent = false; }
+
   // Rapport du soir 20h
   if (hour === 20 && minute === 0 && !eveningReportSent) {
     eveningReportSent = true;
     var stats = resetDailyStatsIfNeeded();
     if (stats._totalOrders > 0) {
       var recap = await buildRecapMessage();
-      var msg = "\ud83c\udf19 <b>Rapport du soir</b>" + recap;
+      var msg = "\uD83C\uDF19 <b>Rapport du soir</b>" + recap;
       await sendTelegram(msg, getMainButtons());
     } else {
-      await sendTelegram("\ud83c\udf19 <b>Rapport du soir</b>\n\nAucune vente aujourd'hui.", null);
+      await sendTelegram("\uD83C\uDF19 <b>Rapport du soir</b>\n\nAucune vente aujourd'hui.", null);
     }
   }
   if (hour === 20 && minute === 1) { eveningReportSent = false; }
@@ -645,6 +776,7 @@ setInterval(async function () {
   // Rapport hebdo lundi 8h
   if (day === 1 && hour === 8 && minute === 0 && !weeklyReportSent) {
     weeklyReportSent = true;
+    morningReportSent = true;
     try {
       var now = new Date();
       var lastMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
@@ -655,6 +787,7 @@ setInterval(async function () {
       var weekRevenue = 0;
       var weekOrders = 0;
       var shopResults = [];
+      var dayRevenues = [0, 0, 0, 0, 0, 0, 0];
 
       for (var i = 0; i < shops.length; i++) {
         var orders = await getShopifyOrders(shops[i], weekStart);
@@ -663,8 +796,10 @@ setInterval(async function () {
         for (var j = 0; j < orders.length; j++) {
           var created = new Date(orders[j].created_at);
           if (created <= lastSunday) {
-            rev += parseFloat(orders[j].total_price || 0);
+            var orderRev = parseFloat(orders[j].total_price || 0);
+            rev += orderRev;
             cnt += 1;
+            dayRevenues[created.getDay()] += orderRev;
           }
         }
         if (rev > 0) { shopResults.push({ name: shops[i].name, revenue: rev, orders: cnt }); }
@@ -681,21 +816,30 @@ setInterval(async function () {
       }
 
       shopResults.sort(function(a, b) { return b.revenue - a.revenue; });
-      var medals = ["\ud83e\udd47", "\ud83e\udd48", "\ud83e\udd49"];
+      var medals = ["\uD83E\uDD47", "\uD83E\uDD48", "\uD83E\uDD49"];
       var lines = [];
       for (var m = 0; m < shopResults.length; m++) {
         var medal = m < 3 ? medals[m] : "   ";
         var pct = weekRevenue > 0 ? ((shopResults[m].revenue / weekRevenue) * 100).toFixed(1) : "0";
         var avg = shopResults[m].orders > 0 ? Math.round(shopResults[m].revenue / shopResults[m].orders) : 0;
-        lines.push(medal + " <b>" + shopResults[m].name + "</b>\n     \ud83d\udcb0 " + formatMoney(shopResults[m].revenue) + " \u20ac (" + pct + "%)\n     \ud83d\uded2 " + shopResults[m].orders + " cmd \u00b7 \u00d8 " + formatMoney(avg) + " \u20ac");
+        lines.push(medal + " <b>" + shopResults[m].name + "</b>\n     \uD83D\uDCB0 " + formatMoney(shopResults[m].revenue) + " \u20ac (" + pct + "%)\n     \uD83D\uDED2 " + shopResults[m].orders + " cmd \u00b7 \u00d8 " + formatMoney(avg) + " \u20ac");
+      }
+
+      // Meilleur jour de la semaine
+      var bestDayIdx = 0;
+      for (var d = 1; d < 7; d++) { if (dayRevenues[d] > dayRevenues[bestDayIdx]) bestDayIdx = d; }
+      var bestDayLine = "";
+      if (dayRevenues[bestDayIdx] > 0) {
+        bestDayLine = "\n\uD83C\uDFC6 <b>Meilleur jour : " + JOUR_NAMES[bestDayIdx] + " (" + formatMoney(dayRevenues[bestDayIdx]) + " \u20ac)</b>";
       }
 
       var weekAvg = weekOrders > 0 ? Math.round(weekRevenue / weekOrders) : 0;
-      var weekMsg = "\ud83d\udcc5 <b>Rapport hebdomadaire</b>\n\n" +
+      var weekMsg = "\uD83D\uDCC5 <b>Rapport hebdomadaire</b>\n\n" +
         lines.join("\n\n") +
         "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n" +
-        "\ud83d\udcb0 <b>Total semaine : " + formatMoney(weekRevenue) + " \u20ac (" + weekOrders + " commande" + (weekOrders > 1 ? "s" : "") + ")</b>\n" +
-        "\ud83d\uded2 <b>Panier moyen : " + formatMoney(weekAvg) + " \u20ac</b>";
+        "\uD83D\uDCB0 <b>Total semaine : " + formatMoney(weekRevenue) + " \u20ac (" + weekOrders + " commande" + (weekOrders > 1 ? "s" : "") + ")</b>\n" +
+        "\uD83D\uDED2 <b>Panier moyen : " + formatMoney(weekAvg) + " \u20ac</b>" +
+        bestDayLine;
       await sendTelegram(weekMsg, getMainButtons());
     } catch (error) { console.error("Erreur rapport hebdo: " + error.message); }
   }
@@ -711,6 +855,60 @@ setInterval(async function () {
 app.post("/webhook", async function (req, res) {
   res.json({ ok: true });
 
+  // Commande /mois
+  if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/mois") === 0) {
+    var thisMonthStats = await getStatsForAll("m");
+    var now = new Date();
+    var lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    var lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    var dayOfMonth = now.getDate();
+    var shops = getShops();
+    var amazonAccounts = getAmazonAccounts();
+    var lastMonthRevenue = 0;
+    var lastMonthOrders = 0;
+    for (var mi = 0; mi < shops.length; mi++) {
+      var mOrders = await getShopifyOrders(shops[mi], lastMonthStart.toISOString());
+      for (var mj = 0; mj < mOrders.length; mj++) {
+        var mCreated = new Date(mOrders[mj].created_at);
+        if (mCreated <= lastMonthEnd) {
+          lastMonthRevenue += parseFloat(mOrders[mj].total_price || 0);
+          lastMonthOrders += 1;
+        }
+      }
+    }
+    for (var mk = 0; mk < amazonAccounts.length; mk++) {
+      var mAmzOrders = await getAmazonOrdersCached(amazonAccounts[mk], lastMonthStart.toISOString(), "last_month", 10 * 60 * 1000);
+      for (var ml = 0; ml < mAmzOrders.length; ml++) {
+        var mAmzCreated = new Date(mAmzOrders[ml].PurchaseDate);
+        if (mAmzCreated <= lastMonthEnd) {
+          if (mAmzOrders[ml].OrderTotal && mAmzOrders[ml].OrderTotal.Amount) {
+            lastMonthRevenue += parseFloat(mAmzOrders[ml].OrderTotal.Amount);
+          }
+          lastMonthOrders += 1;
+        }
+      }
+    }
+    var mDiff = thisMonthStats.revenue - lastMonthRevenue;
+    var mArrow = mDiff >= 0 ? "\uD83D\uDCC8" : "\uD83D\uDCC9";
+    var mSign = mDiff >= 0 ? "+" : "";
+    var mPct = lastMonthRevenue > 0 ? ((mDiff / lastMonthRevenue) * 100).toFixed(1) : "N/A";
+    var thisAvg = thisMonthStats.orders > 0 ? Math.round(thisMonthStats.revenue / thisMonthStats.orders) : 0;
+    var lastAvg = lastMonthOrders > 0 ? Math.round(lastMonthRevenue / lastMonthOrders) : 0;
+    var thisMoisName = MOIS_NAMES[now.getMonth()];
+    var lastMoisName = MOIS_NAMES[now.getMonth() === 0 ? 11 : now.getMonth() - 1];
+    var moisMsg = "\uD83D\uDCC6 <b>Comparaison mensuelle</b>\n\n" +
+      "\uD83D\uDCC5 <b>" + thisMoisName + "</b> (J" + dayOfMonth + ")\n" +
+      "     \uD83D\uDCB0 " + formatMoney(thisMonthStats.revenue) + " \u20ac\n" +
+      "     \uD83D\uDCE6 " + thisMonthStats.orders + " cmd \u00b7 \u00d8 " + formatMoney(thisAvg) + " \u20ac\n\n" +
+      "\u23EA <b>" + lastMoisName + "</b> (mois complet)\n" +
+      "     \uD83D\uDCB0 " + formatMoney(lastMonthRevenue) + " \u20ac\n" +
+      "     \uD83D\uDCE6 " + lastMonthOrders + " cmd \u00b7 \u00d8 " + formatMoney(lastAvg) + " \u20ac\n\n" +
+      "\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n" +
+      mArrow + " <b>" + mSign + formatMoney(Math.abs(mDiff)) + " \u20ac (" + mSign + mPct + "%)</b>";
+    await sendTelegram(moisMsg, getMainButtons());
+    return;
+  }
+
   // Commande /compare
   if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/compare") === 0) {
     var cHour = getParisHour();
@@ -718,18 +916,18 @@ app.post("/webhook", async function (req, res) {
     var todayStats = await getStatsForAll("d");
     var yesterdayStats = await getStatsForAll("h");
     var diff = todayStats.revenue - yesterdayStats.revenue;
-    var arrow = diff >= 0 ? "\ud83d\udcc8" : "\ud83d\udcc9";
+    var arrow = diff >= 0 ? "\uD83D\uDCC8" : "\uD83D\uDCC9";
     var sign = diff >= 0 ? "+" : "";
     var pctChange = yesterdayStats.revenue > 0 ? ((diff / yesterdayStats.revenue) * 100).toFixed(1) : "N/A";
     var todayAvg = todayStats.orders > 0 ? Math.round(todayStats.revenue / todayStats.orders) : 0;
     var yesterdayAvg = yesterdayStats.orders > 0 ? Math.round(yesterdayStats.revenue / yesterdayStats.orders) : 0;
-    var compareMsg = "\ud83d\udcca <b>Comparaison</b>\n\n" +
-      "\ud83d\udcc5 <b>Aujourd'hui</b> (a " + cHour + "h" + String(cMin).padStart(2, "0") + ")\n" +
-      "     \ud83d\udcb0 " + formatMoney(todayStats.revenue) + " \u20ac\n" +
-      "     \ud83d\uded2 " + todayStats.orders + " cmd \u00b7 \u00d8 " + formatMoney(todayAvg) + " \u20ac\n\n" +
-      "\u23ea <b>Hier (journee complete)</b>\n" +
-      "     \ud83d\udcb0 " + formatMoney(yesterdayStats.revenue) + " \u20ac\n" +
-      "     \ud83d\uded2 " + yesterdayStats.orders + " cmd \u00b7 \u00d8 " + formatMoney(yesterdayAvg) + " \u20ac\n\n" +
+    var compareMsg = "\uD83D\uDCCA <b>Comparaison</b>\n\n" +
+      "\uD83D\uDCC5 <b>Aujourd'hui</b> (a " + cHour + "h" + String(cMin).padStart(2, "0") + ")\n" +
+      "     \uD83D\uDCB0 " + formatMoney(todayStats.revenue) + " \u20ac\n" +
+      "     \uD83D\uDED2 " + todayStats.orders + " cmd \u00b7 \u00d8 " + formatMoney(todayAvg) + " \u20ac\n\n" +
+      "\u23EA <b>Hier (journee complete)</b>\n" +
+      "     \uD83D\uDCB0 " + formatMoney(yesterdayStats.revenue) + " \u20ac\n" +
+      "     \uD83D\uDED2 " + yesterdayStats.orders + " cmd \u00b7 \u00d8 " + formatMoney(yesterdayAvg) + " \u20ac\n\n" +
       "\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n" +
       arrow + " <b>" + sign + formatMoney(Math.abs(diff)) + " \u20ac (" + sign + pctChange + "%)</b>";
     await sendTelegram(compareMsg, getMainButtons());
@@ -740,30 +938,170 @@ app.post("/webhook", async function (req, res) {
   if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/top") === 0) {
     var topStats = resetDailyStatsIfNeeded();
     if (topStats._totalOrders === 0) {
-      await sendTelegram("\ud83c\udfc6 <b>Top boutiques</b>\n\nAucune vente aujourd'hui.", null);
+      await sendTelegram("\uD83C\uDFC6 <b>Top boutiques</b>\n\nAucune vente aujourd'hui.", null);
       return;
     }
     var globalAvgTop = topStats._totalOrders > 0 ? Math.round(topStats._totalRevenue / topStats._totalOrders) : 0;
-    var topMsg = "\ud83c\udfc6 <b>Top boutiques du jour</b>\n\n" + buildTopBoutiques() +
+    var topMsg = "\uD83C\uDFC6 <b>Top boutiques du jour</b>\n\n" + buildTopBoutiques() +
       "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n" +
-      "\ud83d\udcb0 <b>Total : " + formatMoney(topStats._totalRevenue) + " \u20ac (" + topStats._totalOrders + " commande" + (topStats._totalOrders > 1 ? "s" : "") + ")</b>\n" +
-      "\ud83d\uded2 <b>Panier moyen : " + formatMoney(globalAvgTop) + " \u20ac</b>";
+      "\uD83D\uDCB0 <b>Total : " + formatMoney(topStats._totalRevenue) + " \u20ac (" + topStats._totalOrders + " commande" + (topStats._totalOrders > 1 ? "s" : "") + ")</b>\n" +
+      "\uD83D\uDED2 <b>Panier moyen : " + formatMoney(globalAvgTop) + " \u20ac</b>";
     await sendTelegram(topMsg, getMainButtons());
+    return;
+  }
+
+  // Commande /topmois (classement mensuel)
+  if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/topmois") === 0) {
+    var now2 = new Date();
+    var monthStart = new Date(now2.getFullYear(), now2.getMonth(), 1).toISOString();
+    var allShops = getShops();
+    var allAmazon = getAmazonAccounts();
+    var monthResults = [];
+    var monthTotalRev = 0;
+    var monthTotalOrd = 0;
+    for (var ti = 0; ti < allShops.length; ti++) {
+      var tOrders = await getShopifyOrders(allShops[ti], monthStart);
+      var tRev = 0; var tCnt = 0;
+      for (var tj = 0; tj < tOrders.length; tj++) {
+        tRev += parseFloat(tOrders[tj].total_price || 0);
+        tCnt += 1;
+      }
+      if (tRev > 0) { monthResults.push({ name: allShops[ti].name, revenue: tRev, orders: tCnt }); }
+      monthTotalRev += tRev;
+      monthTotalOrd += tCnt;
+    }
+    for (var tk = 0; tk < allAmazon.length; tk++) {
+      var tAmz = await getAmazonOrdersCached(allAmazon[tk], monthStart, "topmois", 10 * 60 * 1000);
+      var tAmzRev = getAmazonRevenue(tAmz);
+      if (tAmzRev > 0) { monthResults.push({ name: allAmazon[tk].name, revenue: tAmzRev, orders: tAmz.length }); }
+      monthTotalRev += tAmzRev;
+      monthTotalOrd += tAmz.length;
+    }
+    monthResults.sort(function(a, b) { return b.revenue - a.revenue; });
+    var tMedals = ["\uD83E\uDD47", "\uD83E\uDD48", "\uD83E\uDD49"];
+    var tLines = [];
+    for (var tm = 0; tm < monthResults.length; tm++) {
+      var tMedal = tm < 3 ? tMedals[tm] : "   ";
+      var tPct = monthTotalRev > 0 ? ((monthResults[tm].revenue / monthTotalRev) * 100).toFixed(1) : "0";
+      var tAvg = monthResults[tm].orders > 0 ? Math.round(monthResults[tm].revenue / monthResults[tm].orders) : 0;
+      tLines.push(tMedal + " <b>" + monthResults[tm].name + "</b>\n     \uD83D\uDCB0 " + formatMoney(monthResults[tm].revenue) + " \u20ac (" + tPct + "%)\n     \uD83D\uDED2 " + monthResults[tm].orders + " cmd \u00b7 \u00d8 " + formatMoney(tAvg) + " \u20ac");
+    }
+    var moisName = MOIS_NAMES[now2.getMonth()];
+    var monthAvg = monthTotalOrd > 0 ? Math.round(monthTotalRev / monthTotalOrd) : 0;
+    var topMoisMsg = "\uD83C\uDFC6 <b>Classement " + moisName + "</b>\n\n" +
+      tLines.join("\n\n") +
+      "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n" +
+      "\uD83D\uDCB0 <b>Total : " + formatMoney(monthTotalRev) + " \u20ac (" + monthTotalOrd + " commande" + (monthTotalOrd > 1 ? "s" : "") + ")</b>\n" +
+      "\uD83D\uDED2 <b>Panier moyen : " + formatMoney(monthAvg) + " \u20ac</b>";
+    await sendTelegram(topMoisMsg, getMainButtons());
+    return;
+  }
+
+  // Commande /topproduits
+  if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/topproduits") === 0) {
+    var now3 = new Date();
+    var mStart = new Date(now3.getFullYear(), now3.getMonth(), 1).toISOString();
+    var pShops = getShops();
+    var productMap = {};
+    for (var pi = 0; pi < pShops.length; pi++) {
+      var pOrders = await getShopifyOrders(pShops[pi], mStart);
+      for (var pj = 0; pj < pOrders.length; pj++) {
+        var items = pOrders[pj].line_items || [];
+        for (var pk = 0; pk < items.length; pk++) {
+          var pName = items[pk].title || "Inconnu";
+          var pQty = items[pk].quantity || 1;
+          var pRev = parseFloat(items[pk].price || 0) * pQty;
+          if (!productMap[pName]) { productMap[pName] = { qty: 0, revenue: 0 }; }
+          productMap[pName].qty += pQty;
+          productMap[pName].revenue += pRev;
+        }
+      }
+    }
+    var productList = [];
+    var pKeys = Object.keys(productMap);
+    for (var pl = 0; pl < pKeys.length; pl++) {
+      productList.push({ name: pKeys[pl], qty: productMap[pKeys[pl]].qty, revenue: productMap[pKeys[pl]].revenue });
+    }
+    productList.sort(function(a, b) { return b.revenue - a.revenue; });
+    var topN = Math.min(productList.length, 10);
+    var pMedals = ["\uD83E\uDD47", "\uD83E\uDD48", "\uD83E\uDD49"];
+    var pLines = [];
+    for (var pm = 0; pm < topN; pm++) {
+      var pMedal = pm < 3 ? pMedals[pm] : (pm + 1) + ".";
+      pLines.push(pMedal + " <b>" + productList[pm].name.substring(0, 40) + "</b>\n     \uD83D\uDCB0 " + formatMoney(productList[pm].revenue) + " \u20ac \u00b7 " + productList[pm].qty + " vendus");
+    }
+    var prodMoisName = MOIS_NAMES[now3.getMonth()];
+    var topProdMsg = "\uD83C\uDFC6 <b>Top produits " + prodMoisName + "</b>\n<i>(Shopify uniquement)</i>\n\n" + pLines.join("\n\n");
+    await sendTelegram(topProdMsg, getMainButtons());
+    return;
+  }
+
+  // Commande /semaine (CA par jour)
+  if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/semaine") === 0) {
+    var now4 = new Date();
+    var weekAgo = new Date(now4.getFullYear(), now4.getMonth(), now4.getDate() - 6);
+    var sShops = getShops();
+    var sAmazon = getAmazonAccounts();
+    var dayData = {};
+    for (var sd = 0; sd < 7; sd++) {
+      var sDate = new Date(now4.getFullYear(), now4.getMonth(), now4.getDate() - 6 + sd);
+      var sKey = sDate.getFullYear() + "-" + String(sDate.getMonth() + 1).padStart(2, "0") + "-" + String(sDate.getDate()).padStart(2, "0");
+      dayData[sKey] = { revenue: 0, orders: 0, day: sDate.getDay() };
+    }
+    for (var si = 0; si < sShops.length; si++) {
+      var sOrders = await getShopifyOrders(sShops[si], weekAgo.toISOString());
+      for (var sj = 0; sj < sOrders.length; sj++) {
+        var sCreated = new Date(sOrders[sj].created_at);
+        var sDateKey = sCreated.getFullYear() + "-" + String(sCreated.getMonth() + 1).padStart(2, "0") + "-" + String(sCreated.getDate()).padStart(2, "0");
+        if (dayData[sDateKey]) {
+          dayData[sDateKey].revenue += parseFloat(sOrders[sj].total_price || 0);
+          dayData[sDateKey].orders += 1;
+        }
+      }
+    }
+    var sKeys = Object.keys(dayData).sort();
+    var bestDay = sKeys[0];
+    var sLines = [];
+    for (var sk = 0; sk < sKeys.length; sk++) {
+      var dd = dayData[sKeys[sk]];
+      var dn = JOUR_NAMES[dd.day].substring(0, 3);
+      var sDateParts = sKeys[sk].split("-");
+      var sLabel = dn + " " + sDateParts[2] + "/" + sDateParts[1];
+      var barLen = 0;
+      var maxRev = 0;
+      for (var sx = 0; sx < sKeys.length; sx++) { if (dayData[sKeys[sx]].revenue > maxRev) maxRev = dayData[sKeys[sx]].revenue; }
+      barLen = maxRev > 0 ? Math.round((dd.revenue / maxRev) * 8) : 0;
+      var sBar = "";
+      for (var sb = 0; sb < barLen; sb++) sBar += "\u2588";
+      for (var se = barLen; se < 8; se++) sBar += "\u2591";
+      sLines.push(sLabel + " " + sBar + " " + formatMoney(dd.revenue) + " \u20ac (" + dd.orders + ")");
+      if (dayData[sKeys[sk]].revenue > dayData[bestDay].revenue) bestDay = sKeys[sk];
+    }
+    var bestDayName = JOUR_NAMES[dayData[bestDay].day];
+    var sMsg = "\uD83D\uDCC5 <b>CA des 7 derniers jours</b>\n<i>(Shopify uniquement)</i>\n\n<code>" + sLines.join("\n") + "</code>\n\n\uD83C\uDFC6 <b>Meilleur jour : " + bestDayName + " (" + formatMoney(dayData[bestDay].revenue) + " \u20ac)</b>";
+    await sendTelegram(sMsg, getMainButtons());
     return;
   }
 
   // Commande /help
   if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/help") === 0) {
-    var helpMsg = "\ud83d\udccb <b>Commandes disponibles</b>\n\n" +
-      "\ud83d\udcca /stats - Recap du jour + boutons\n" +
-      "\ud83c\udfc6 /top - Classement des boutiques\n" +
-      "\ud83d\udcc8 /compare - Aujourd'hui vs hier\n" +
+    var helpMsg = "\uD83D\uDCCB <b>Commandes disponibles</b>\n\n" +
+      "\uD83D\uDCCA /stats - Recap du jour + boutons\n" +
+      "\uD83C\uDFC6 /top - Classement boutiques (jour)\n" +
+      "\uD83C\uDFC6 /topmois - Classement boutiques (mois)\n" +
+      "\uD83C\uDFC6 /topproduits - Top produits du mois\n" +
+      "\uD83D\uDCC8 /compare - Aujourd'hui vs hier\n" +
+      "\uD83D\uDCC6 /mois - Ce mois vs mois dernier\n" +
+      "\uD83D\uDCC5 /semaine - CA par jour (7 jours)\n" +
       "\u2753 /help - Cette aide\n\n" +
-      "\u23f0 <b>Automatique :</b>\n" +
-      "\ud83c\udf19 20h - Rapport du soir\n" +
-      "\ud83d\udcc5 Lundi 8h - Rapport hebdo\n" +
-      "\ud83c\udfaf Alerte objectif atteint\n" +
-      "\ud83d\udd25 Alerte grosse commande (+1 000 \u20ac)";
+      "\u23F0 <b>Automatique :</b>\n" +
+      "\u2600\uFE0F 8h - Rapport du matin\n" +
+      "\uD83C\uDF19 20h - Rapport du soir\n" +
+      "\uD83D\uDCC5 Lundi 8h - Rapport hebdo\n" +
+      "\uD83C\uDFAF Alerte objectif atteint\n" +
+      "\uD83D\uDD25 Alerte grosse commande (+1 000 \u20ac)\n" +
+      "\uD83C\uDF89 Milestones (commandes & CA)\n" +
+      "\uD83D\uDD25 Streak objectif";
     await sendTelegram(helpMsg, null);
     return;
   }
@@ -772,7 +1110,7 @@ app.post("/webhook", async function (req, res) {
   if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/stats") === 0) {
     var stats = resetDailyStatsIfNeeded();
     var recap = await buildRecapMessage();
-    var statsMsg = "\ud83d\udcca <b>Dashboard</b>" + recap;
+    var statsMsg = "\uD83D\uDCCA <b>Dashboard</b>" + recap;
     await sendTelegram(statsMsg, getMainButtons());
     return;
   }
@@ -786,35 +1124,26 @@ app.post("/webhook", async function (req, res) {
   await answerCallback(callbackId);
   if (!data || !chatId || !messageId) return;
 
-  // Menu principal
   if (data === "main_menu") {
     var mainRecap = await buildRecapMessage();
-    await editMessage(chatId, messageId, "\ud83d\udcca <b>Dashboard</b>" + mainRecap, getMainButtons());
+    await editMessage(chatId, messageId, "\uD83D\uDCCA <b>Dashboard</b>" + mainRecap, getMainButtons());
     return;
   }
-
-  // Menu ventes (liste des boutiques)
   if (data === "menu_ventes") {
-    await editMessage(chatId, messageId, "\ud83c\udfea <b>Choisissez une boutique :</b>", getShopButtons());
+    await editMessage(chatId, messageId, "\uD83C\uDFEA <b>Choisissez une boutique :</b>", getShopButtons());
     return;
   }
-
-  // Menu Amazon pays
   if (data === "amz_menu") {
-    await editMessage(chatId, messageId, "\ud83d\udce6 <b>Amazon - Choisissez un pays :</b>", getAmazonCountryButtons());
+    await editMessage(chatId, messageId, "\uD83D\uDCE6 <b>Amazon - Choisissez un pays :</b>", getAmazonCountryButtons());
     return;
   }
-
-  // Selection pays Amazon
   if (data.indexOf("amz:") === 0) {
     var mpId = data.substring(4);
     var mpInfo = MARKETPLACE_MAP[mpId];
     var label = mpInfo ? mpInfo.flag + " Amazon " + mpInfo.name : "Amazon";
-    await editMessage(chatId, messageId, "\ud83d\udce6 <b>" + label + "</b>\n\n\ud83d\udcc5 Choisissez une periode :", getAmzPeriodButtons(mpId));
+    await editMessage(chatId, messageId, "\uD83D\uDCE6 <b>" + label + "</b>\n\n\uD83D\uDCC5 Choisissez une periode :", getAmzPeriodButtons(mpId));
     return;
   }
-
-  // Periode Amazon par pays
   if (data.indexOf("ap:") === 0) {
     var parts = data.split(":");
     var aMpId = parts[1];
@@ -822,33 +1151,29 @@ app.post("/webhook", async function (req, res) {
     var aMpInfo = MARKETPLACE_MAP[aMpId];
     var aLabel = aMpInfo ? aMpInfo.flag + " Amazon " + aMpInfo.name : "Amazon";
     var aPeriodLabel = getPeriodLabel(aPeriod);
-    await editMessage(chatId, messageId, "\u23f3 <b>Chargement " + aLabel + " - " + aPeriodLabel + "...</b>", null);
+    await editMessage(chatId, messageId, "\u23F3 <b>Chargement " + aLabel + " - " + aPeriodLabel + "...</b>", null);
     var aStats = await getStatsForShop(null, aPeriod, aMpId);
     var aAvg = aStats.orders > 0 ? Math.round(aStats.revenue / aStats.orders) : 0;
-    var aResultMsg = "\ud83d\udce6 <b>" + aLabel + " - " + aPeriodLabel + "</b>\n\n\ud83d\udcb0 CA : " + formatMoney(aStats.revenue) + " \u20ac\n\ud83d\udce6 Commandes : " + aStats.orders + "\n\ud83d\uded2 Panier moyen : " + formatMoney(aAvg) + " \u20ac";
+    var aResultMsg = "\uD83D\uDCE6 <b>" + aLabel + " - " + aPeriodLabel + "</b>\n\n\uD83D\uDCB0 CA : " + formatMoney(aStats.revenue) + " \u20ac\n\uD83D\uDCE6 Commandes : " + aStats.orders + "\n\uD83D\uDED2 Panier moyen : " + formatMoney(aAvg) + " \u20ac";
     await editMessage(chatId, messageId, aResultMsg, getAmzPeriodButtons(aMpId));
     return;
   }
-
-  // Selection boutique Shopify
   if (data.indexOf("s:") === 0) {
     var shopName = data.substring(2);
-    await editMessage(chatId, messageId, "\ud83c\udfea <b>" + shopName + "</b>\n\n\ud83d\udcc5 Choisissez une periode :", getPeriodButtons(shopName));
+    await editMessage(chatId, messageId, "\uD83C\uDFEA <b>" + shopName + "</b>\n\n\uD83D\uDCC5 Choisissez une periode :", getPeriodButtons(shopName));
     return;
   }
-
-  // Periode Shopify / ALL / ALL_AMAZON
   if (data.indexOf("p:") === 0) {
     var pParts = data.split(":");
     var pShopName = pParts[1];
     var period = pParts[2];
     var periodLabel = getPeriodLabel(period);
-    await editMessage(chatId, messageId, "\u23f3 <b>Chargement " + pShopName + " - " + periodLabel + "...</b>", null);
+    await editMessage(chatId, messageId, "\u23F3 <b>Chargement " + pShopName + " - " + periodLabel + "...</b>", null);
     var pStats;
     if (pShopName === "ALL") { pStats = await getStatsForAll(period); }
     else { pStats = await getStatsForShop(pShopName, period, null); }
     var pAvg = pStats.orders > 0 ? Math.round(pStats.revenue / pStats.orders) : 0;
-    var pResultMsg = "\ud83c\udfea <b>" + pShopName + " - " + periodLabel + "</b>\n\n\ud83d\udcb0 CA : " + formatMoney(pStats.revenue) + " \u20ac\n\ud83d\udce6 Commandes : " + pStats.orders + "\n\ud83d\uded2 Panier moyen : " + formatMoney(pAvg) + " \u20ac";
+    var pResultMsg = "\uD83C\uDFEA <b>" + pShopName + " - " + periodLabel + "</b>\n\n\uD83D\uDCB0 CA : " + formatMoney(pStats.revenue) + " \u20ac\n\uD83D\uDCE6 Commandes : " + pStats.orders + "\n\uD83D\uDED2 Panier moyen : " + formatMoney(pAvg) + " \u20ac";
     await editMessage(chatId, messageId, pResultMsg, getPeriodButtons(pShopName));
     return;
   }
