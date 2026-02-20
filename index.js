@@ -13,14 +13,19 @@ function sleep(ms) {
 async function fetchWithRetry(url, options, retries) {
   if (!retries) retries = 3;
   for (var i = 0; i < retries; i++) {
-    var response = await fetch(url, options);
-    if (response.status === 429) {
-      var wait = (i + 1) * 5000;
-      console.log("Rate limited, attente " + (wait/1000) + "s...");
-      await sleep(wait);
-      continue;
+    try {
+      var response = await fetch(url, options);
+      if (response.status === 429) {
+        var wait = (i + 1) * 10000;
+        console.log("Rate limited, attente " + (wait/1000) + "s...");
+        await sleep(wait);
+        continue;
+      }
+      return response;
+    } catch (error) {
+      console.error("Fetch error: " + error.message);
+      await sleep(5000);
     }
-    return response;
   }
   return null;
 }
@@ -127,7 +132,7 @@ async function getShopifyOrders(shop, since) {
 }
 
 // ============================================================
-// AMAZON
+// AMAZON (avec cache agressif)
 // ============================================================
 
 function getAmazonAccounts() {
@@ -163,7 +168,11 @@ async function getAmazonAccessToken(account) {
   return data.access_token;
 }
 
-async function getAmazonOrders(account, since) {
+// Cache des commandes Amazon
+var amazonOrdersCache = {};
+var amazonFetchLock = false;
+
+async function fetchAmazonOrdersRaw(account, since) {
   var token = await getAmazonAccessToken(account);
   if (!token) return [];
   var allOrders = [];
@@ -174,17 +183,36 @@ async function getAmazonOrders(account, since) {
     var url = account.endpoint + "/orders/v0/orders?MarketplaceIds=" + account.marketplace +
       "&CreatedAfter=" + encodeURIComponent(since) + "&OrderStatuses=Shipped,Unshipped&MaxResultsPerPage=100";
     if (nextToken) { url += "&NextToken=" + encodeURIComponent(nextToken); }
-    try {
-      var response = await fetchWithRetry(url, { headers: { "x-amz-access-token": token, "Content-Type": "application/json" } });
-      if (!response || !response.ok) { console.error("Erreur Amazon " + (response ? response.status : "timeout") + " " + account.name); break; }
-      var data = await response.json();
-      var orders = data.payload && data.payload.Orders ? data.payload.Orders : [];
-      for (var j = 0; j < orders.length; j++) { allOrders.push(orders[j]); }
-      nextToken = data.payload && data.payload.NextToken ? data.payload.NextToken : null;
-      if (nextToken) await sleep(1000);
-    } catch (error) { console.error("Erreur Amazon " + account.name + ": " + error.message); break; }
+    var response = await fetchWithRetry(url, { headers: { "x-amz-access-token": token, "Content-Type": "application/json" } });
+    if (!response || !response.ok) { console.error("Erreur Amazon " + (response ? response.status : "timeout") + " " + account.name); break; }
+    var data = await response.json();
+    var orders = data.payload && data.payload.Orders ? data.payload.Orders : [];
+    for (var j = 0; j < orders.length; j++) { allOrders.push(orders[j]); }
+    nextToken = data.payload && data.payload.NextToken ? data.payload.NextToken : null;
+    if (nextToken) await sleep(2000);
   }
   return allOrders;
+}
+
+async function getAmazonOrdersCached(account, since, cacheKey, cacheDuration) {
+  var now = Date.now();
+  var cached = amazonOrdersCache[cacheKey];
+  if (cached && now - cached.time < cacheDuration) {
+    return cached.orders;
+  }
+  // Eviter les appels simultanes
+  if (amazonFetchLock) {
+    if (cached) return cached.orders;
+    return [];
+  }
+  amazonFetchLock = true;
+  try {
+    var orders = await fetchAmazonOrdersRaw(account, since);
+    amazonOrdersCache[cacheKey] = { orders: orders, time: now };
+    return orders;
+  } finally {
+    amazonFetchLock = false;
+  }
 }
 
 // ============================================================
@@ -214,6 +242,16 @@ function getPeriodLabel(period) {
   return "Total";
 }
 
+function getAmazonRevenue(orders) {
+  var total = 0;
+  for (var i = 0; i < orders.length; i++) {
+    if (orders[i].OrderTotal && orders[i].OrderTotal.Amount) {
+      total += parseFloat(orders[i].OrderTotal.Amount);
+    }
+  }
+  return total;
+}
+
 async function getStatsForShop(shopName, period) {
   var dates = getPeriodDates(period);
   var shops = getShops();
@@ -223,14 +261,9 @@ async function getStatsForShop(shopName, period) {
 
   if (shopName === "ALL_AMAZON") {
     for (var a = 0; a < amazonAccounts.length; a++) {
-      if (a > 0) await sleep(3000);
-      var allAmzOrders = await getAmazonOrders(amazonAccounts[a], dates.start);
-      for (var b = 0; b < allAmzOrders.length; b++) {
-        if (allAmzOrders[b].OrderTotal && allAmzOrders[b].OrderTotal.Amount) {
-          revenue += parseFloat(allAmzOrders[b].OrderTotal.Amount);
-        }
-        orderCount += 1;
-      }
+      var allAmzOrders = await getAmazonOrdersCached(amazonAccounts[a], dates.start, "stats_amazon_" + period, 5 * 60 * 1000);
+      revenue += getAmazonRevenue(allAmzOrders);
+      orderCount += allAmzOrders.length;
     }
     return { revenue: revenue, orders: orderCount };
   }
@@ -250,13 +283,9 @@ async function getStatsForShop(shopName, period) {
 
   for (var k = 0; k < amazonAccounts.length; k++) {
     if (amazonAccounts[k].name === shopName) {
-      var amzOrders = await getAmazonOrders(amazonAccounts[k], dates.start);
-      for (var l = 0; l < amzOrders.length; l++) {
-        if (amzOrders[l].OrderTotal && amzOrders[l].OrderTotal.Amount) {
-          revenue += parseFloat(amzOrders[l].OrderTotal.Amount);
-        }
-        orderCount += 1;
-      }
+      var amzOrders = await getAmazonOrdersCached(amazonAccounts[k], dates.start, "stats_" + shopName + "_" + period, 5 * 60 * 1000);
+      revenue += getAmazonRevenue(amzOrders);
+      orderCount += amzOrders.length;
     }
   }
 
@@ -282,14 +311,9 @@ async function getStatsForAll(period) {
   }
 
   for (var k = 0; k < amazonAccounts.length; k++) {
-    if (k > 0) await sleep(3000);
-    var amzOrders = await getAmazonOrders(amazonAccounts[k], dates.start);
-    for (var l = 0; l < amzOrders.length; l++) {
-      if (amzOrders[l].OrderTotal && amzOrders[l].OrderTotal.Amount) {
-        revenue += parseFloat(amzOrders[l].OrderTotal.Amount);
-      }
-      orderCount += 1;
-    }
+    var amzOrders = await getAmazonOrdersCached(amazonAccounts[k], dates.start, "stats_all_amazon_" + period, 5 * 60 * 1000);
+    revenue += getAmazonRevenue(amzOrders);
+    orderCount += amzOrders.length;
   }
 
   return { revenue: revenue, orders: orderCount };
@@ -411,11 +435,11 @@ async function checkNewOrders() {
     } catch (error) { console.error("Erreur check " + shop.name + ": " + error.message); }
   }
 
+  // Amazon - cache de 5 min pour le scan
   for (var k = 0; k < amazonAccounts.length; k++) {
     var account = amazonAccounts[k];
-    if (k > 0) await sleep(3000);
     try {
-      var amzOrders = await getAmazonOrders(account, startOfDay);
+      var amzOrders = await getAmazonOrdersCached(account, startOfDay, "scan_" + account.name, 5 * 60 * 1000);
       for (var l = 0; l < amzOrders.length; l++) {
         var amzOrder = amzOrders[l];
         var amzOrderId = "amazon_" + account.name + "_" + amzOrder.AmazonOrderId;
@@ -488,7 +512,7 @@ app.post("/webhook", async function (req, res) {
 
 var cachedNumber = 0;
 var lastFetch = 0;
-var CACHE_DURATION = 120 * 1000;
+var CACHE_DURATION = 5 * 60 * 1000;
 
 async function getTotalRevenue() {
   var now = Date.now();
@@ -502,11 +526,8 @@ async function getTotalRevenue() {
     for (var j = 0; j < orders.length; j++) { total += parseFloat(orders[j].total_price || 0); }
   }
   for (var k = 0; k < amazonAccounts.length; k++) {
-    if (k > 0) await sleep(3000);
-    var amzOrders = await getAmazonOrders(amazonAccounts[k], startOfYear);
-    for (var l = 0; l < amzOrders.length; l++) {
-      if (amzOrders[l].OrderTotal && amzOrders[l].OrderTotal.Amount) { total += parseFloat(amzOrders[l].OrderTotal.Amount); }
-    }
+    var amzOrders = await getAmazonOrdersCached(amazonAccounts[k], startOfYear, "total_year", 10 * 60 * 1000);
+    total += getAmazonRevenue(amzOrders);
   }
   cachedNumber = Math.round(total);
   lastFetch = now;
@@ -534,10 +555,8 @@ app.get("/debug", async function (req, res) {
     results.push({ source: "Shopify", name: shops[i].name, revenue: rev.toFixed(2) });
   }
   for (var k = 0; k < amazonAccounts.length; k++) {
-    if (k > 0) await sleep(3000);
-    var amzOrders = await getAmazonOrders(amazonAccounts[k], startOfYear);
-    var amzRev = 0; for (var l = 0; l < amzOrders.length; l++) { if (amzOrders[l].OrderTotal) { amzRev += parseFloat(amzOrders[l].OrderTotal.Amount); } }
-    results.push({ source: "Amazon", name: amazonAccounts[k].name, revenue: amzRev.toFixed(2) });
+    var amzOrders = await getAmazonOrdersCached(amazonAccounts[k], startOfYear, "debug_year", 10 * 60 * 1000);
+    results.push({ source: "Amazon", name: amazonAccounts[k].name, revenue: getAmazonRevenue(amzOrders).toFixed(2) });
   }
   var total = 0; for (var m = 0; m < results.length; m++) { total += parseFloat(results[m].revenue); }
   var today = resetDailyStatsIfNeeded();
