@@ -467,6 +467,14 @@ setInterval(checkNewOrders, 60 * 1000);
 
 app.post("/webhook", async function (req, res) {
   res.json({ ok: true });
+  // Commande /stats
+  if (req.body && req.body.message && req.body.message.text === "/stats") {
+    var stats = resetDailyStatsIfNeeded();
+    var recap = "📊 <b>Dashboard</b>" + buildRecapMessage();
+    await sendTelegram(recap, getShopButtons());
+    return;
+  }
+
   var callback = req.body && req.body.callback_query;
   if (!callback) return;
   var callbackId = callback.id;
