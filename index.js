@@ -468,7 +468,7 @@ setInterval(checkNewOrders, 60 * 1000);
 app.post("/webhook", async function (req, res) {
   res.json({ ok: true });
   // Commande /stats
-  if (req.body && req.body.message && req.body.message.text === "/stats") {
+  if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/stats") === 0) {
     var stats = resetDailyStatsIfNeeded();
     var recap = "📊 <b>Dashboard</b>" + buildRecapMessage();
     await sendTelegram(recap, getShopButtons());
