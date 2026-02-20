@@ -1008,19 +1008,21 @@ app.post("/webhook", async function (req, res) {
       for (var pj = 0; pj < pOrders.length; pj++) {
         var items = pOrders[pj].line_items || [];
         for (var pk = 0; pk < items.length; pk++) {
+          var pSku = items[pk].sku || "no-sku";
           var pName = items[pk].title || "Inconnu";
+          var pVariant = items[pk].variant_title || "";
           var pQty = items[pk].quantity || 1;
           var pRev = parseFloat(items[pk].price || 0) * pQty;
-          if (!productMap[pName]) { productMap[pName] = { qty: 0, revenue: 0 }; }
-          productMap[pName].qty += pQty;
-          productMap[pName].revenue += pRev;
+          if (!productMap[pSku]) { productMap[pSku] = { name: pName, variant: pVariant, qty: 0, revenue: 0 }; }
+          productMap[pSku].qty += pQty;
+          productMap[pSku].revenue += pRev;
         }
       }
     }
     var productList = [];
     var pKeys = Object.keys(productMap);
     for (var pl = 0; pl < pKeys.length; pl++) {
-      productList.push({ name: pKeys[pl], qty: productMap[pKeys[pl]].qty, revenue: productMap[pKeys[pl]].revenue });
+      productList.push({ sku: pKeys[pl], name: productMap[pKeys[pl]].name, variant: productMap[pKeys[pl]].variant, qty: productMap[pKeys[pl]].qty, revenue: productMap[pKeys[pl]].revenue });
     }
     productList.sort(function(a, b) { return b.revenue - a.revenue; });
     var topN = Math.min(productList.length, 10);
@@ -1028,27 +1030,13 @@ app.post("/webhook", async function (req, res) {
     var pLines = [];
     for (var pm = 0; pm < topN; pm++) {
       var pMedal = pm < 3 ? pMedals[pm] : (pm + 1) + ".";
-      pLines.push(pMedal + " <b>" + productList[pm].name.substring(0, 40) + "</b>\n     \uD83D\uDCB0 " + formatMoney(productList[pm].revenue) + " \u20ac \u00b7 " + productList[pm].qty + " vendus");
+      var displayName = productList[pm].name.substring(0, 35);
+      if (productList[pm].variant) { displayName += " (" + productList[pm].variant.substring(0, 15) + ")"; }
+      pLines.push(pMedal + " <b>" + displayName + "</b>\n     \uD83D\uDCB0 " + formatMoney(productList[pm].revenue) + " \u20ac \u00b7 " + productList[pm].qty + " vendus\n     SKU: <code>" + productList[pm].sku + "</code>");
     }
     var prodMoisName = MOIS_NAMES[now3.getMonth()];
-    var topProdMsg = "\uD83C\uDFC6 <b>Top produits " + prodMoisName + "</b>\n<i>(Shopify uniquement)</i>\n\n" + pLines.join("\n\n");
+    var topProdMsg = "\uD83C\uDFC6 <b>Top 10 produits " + prodMoisName + "</b>\n<i>(Shopify - par SKU)</i>\n\n" + pLines.join("\n\n");
     await sendTelegram(topProdMsg, getMainButtons());
-    return;
-  }
-
-  // Commande /semaine
-  if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/semaine") === 0) {
-    var semButtons = [
-      [
-        { text: "\uD83D\uDCC5 7 jours", callback_data: "sem:7" },
-        { text: "\uD83D\uDCC6 30 jours", callback_data: "sem:30" }
-      ],
-      [
-        { text: "\uD83D\uDCCA Cette annee", callback_data: "sem:365" },
-        { text: "\uD83C\uDF0D Tout", callback_data: "sem:all" }
-      ]
-    ];
-    await sendTelegram("\uD83D\uDCC5 <b>CA par jour</b>\n\nChoisissez la periode :", semButtons);
     return;
   }
 
@@ -1129,85 +1117,67 @@ app.post("/webhook", async function (req, res) {
   }
 
   // CA par jour (semaine)
+ // CA par jour de la semaine
   if (data.indexOf("sem:") === 0) {
     var semPeriod = data.substring(4);
     var now4 = new Date();
-    var nbDays = 7;
-    if (semPeriod === "30") nbDays = 30;
-    else if (semPeriod === "365") { nbDays = Math.floor((now4 - new Date(now4.getFullYear(), 0, 1)) / 86400000); }
-    else if (semPeriod === "all") { nbDays = 365; }
-    var weekAgo = new Date(now4.getFullYear(), now4.getMonth(), now4.getDate() - (nbDays - 1));
-    var sShops = getShops();
-    var dayData = {};
-    for (var sd = 0; sd < nbDays; sd++) {
-      var sDate = new Date(now4.getFullYear(), now4.getMonth(), now4.getDate() - (nbDays - 1) + sd);
-      var sKey = sDate.getFullYear() + "-" + String(sDate.getMonth() + 1).padStart(2, "0") + "-" + String(sDate.getDate()).padStart(2, "0");
-      dayData[sKey] = { revenue: 0, orders: 0, day: sDate.getDay() };
-    }
+    var semStart;
+    var semLabel;
+    if (semPeriod === "7") { semStart = new Date(now4.getFullYear(), now4.getMonth(), now4.getDate() - 6); semLabel = "7 derniers jours"; }
+    else if (semPeriod === "30") { semStart = new Date(now4.getFullYear(), now4.getMonth(), now4.getDate() - 29); semLabel = "30 derniers jours"; }
+    else if (semPeriod === "365") { semStart = new Date(now4.getFullYear(), 0, 1); semLabel = "cette annee"; }
+    else { semStart = new Date(2020, 0, 1); semLabel = "tout"; }
     await editMessage(chatId, messageId, "\u23F3 <b>Chargement...</b>", null);
+    var sShops = getShops();
+    var sDayTotals = [0, 0, 0, 0, 0, 0, 0];
+    var sDayOrders = [0, 0, 0, 0, 0, 0, 0];
+    var sDayCounts = [0, 0, 0, 0, 0, 0, 0];
     for (var si = 0; si < sShops.length; si++) {
-      var sOrders = await getShopifyOrders(sShops[si], weekAgo.toISOString());
+      var sOrders = await getShopifyOrders(sShops[si], semStart.toISOString());
       for (var sj = 0; sj < sOrders.length; sj++) {
         var sCreated = new Date(sOrders[sj].created_at);
-        var sDateKey = sCreated.getFullYear() + "-" + String(sCreated.getMonth() + 1).padStart(2, "0") + "-" + String(sCreated.getDate()).padStart(2, "0");
-        if (dayData[sDateKey]) {
-          dayData[sDateKey].revenue += parseFloat(sOrders[sj].total_price || 0);
-          dayData[sDateKey].orders += 1;
+        var sDay = sCreated.getDay();
+        sDayTotals[sDay] += parseFloat(sOrders[sj].total_price || 0);
+        sDayOrders[sDay] += 1;
+      }
+    }
+    var sAmazon = getAmazonAccounts();
+    for (var sk = 0; sk < sAmazon.length; sk++) {
+      var sAmz = await getAmazonOrdersCached(sAmazon[sk], semStart.toISOString(), "sem_amz_" + semPeriod, 10 * 60 * 1000);
+      for (var sl = 0; sl < sAmz.length; sl++) {
+        var sAmzDate = new Date(sAmz[sl].PurchaseDate || sAmz[sl].CreatedBefore);
+        if (sAmzDate) {
+          var sAmzDay = sAmzDate.getDay();
+          sDayTotals[sAmzDay] += (sAmz[sl].OrderTotal && sAmz[sl].OrderTotal.Amount) ? parseFloat(sAmz[sl].OrderTotal.Amount) : 0;
+          sDayOrders[sAmzDay] += 1;
         }
       }
     }
-    var sKeys = Object.keys(dayData).sort();
-    var maxRev = 0;
-    var bestDay = sKeys[0];
-    var totalRev = 0;
-    var totalOrd = 0;
-    for (var sx = 0; sx < sKeys.length; sx++) {
-      if (dayData[sKeys[sx]].revenue > maxRev) maxRev = dayData[sKeys[sx]].revenue;
-      if (dayData[sKeys[sx]].revenue > dayData[bestDay].revenue) bestDay = sKeys[sx];
-      totalRev += dayData[sKeys[sx]].revenue;
-      totalOrd += dayData[sKeys[sx]].orders;
+    var sMaxRev = 0;
+    var sBestDay = 0;
+    var sTotalRev = 0;
+    var sTotalOrd = 0;
+    for (var sm = 0; sm < 7; sm++) {
+      if (sDayTotals[sm] > sMaxRev) { sMaxRev = sDayTotals[sm]; sBestDay = sm; }
+      sTotalRev += sDayTotals[sm];
+      sTotalOrd += sDayOrders[sm];
     }
-    if (nbDays <= 31) {
-      var sLines = [];
-      for (var sk = 0; sk < sKeys.length; sk++) {
-        var dd = dayData[sKeys[sk]];
-        var dn = JOUR_NAMES[dd.day].substring(0, 3);
-        var sDateParts = sKeys[sk].split("-");
-        var sLabel = dn + " " + sDateParts[2] + "/" + sDateParts[1];
-        var barLen = maxRev > 0 ? Math.round((dd.revenue / maxRev) * 8) : 0;
-        var sBar = "";
-        for (var sb = 0; sb < barLen; sb++) sBar += "\u2588";
-        for (var se = barLen; se < 8; se++) sBar += "\u2591";
-        sLines.push(sLabel + " " + sBar + " " + formatMoney(dd.revenue) + "\u20ac");
-      }
-      var periodLabel = semPeriod === "7" ? "7 jours" : "30 jours";
-      var sMsg = "\uD83D\uDCC5 <b>CA par jour (" + periodLabel + ")</b>\n<i>(Shopify uniquement)</i>\n\n<code>" + sLines.join("\n") + "</code>";
-    } else {
-      var weekMap = {};
-      for (var sw = 0; sw < sKeys.length; sw++) {
-        var wDate = new Date(sKeys[sw]);
-        var weekNum = Math.ceil((Math.floor((wDate - new Date(wDate.getFullYear(), 0, 1)) / 86400000) + 1) / 7);
-        var wKey = "S" + String(weekNum).padStart(2, "0");
-        if (!weekMap[wKey]) { weekMap[wKey] = { revenue: 0, orders: 0 }; }
-        weekMap[wKey].revenue += dayData[sKeys[sw]].revenue;
-        weekMap[wKey].orders += dayData[sKeys[sw]].orders;
-      }
-      var wKeys = Object.keys(weekMap).sort();
-      var wMaxRev = 0;
-      for (var wx = 0; wx < wKeys.length; wx++) { if (weekMap[wKeys[wx]].revenue > wMaxRev) wMaxRev = weekMap[wKeys[wx]].revenue; }
-      var wLines = [];
-      for (var wk = 0; wk < wKeys.length; wk++) {
-        var ww = weekMap[wKeys[wk]];
-        var wBarLen = wMaxRev > 0 ? Math.round((ww.revenue / wMaxRev) * 8) : 0;
-        var wBar = "";
-        for (var wb = 0; wb < wBarLen; wb++) wBar += "\u2588";
-        for (var we = wBarLen; we < 8; we++) wBar += "\u2591";
-        wLines.push(wKeys[wk] + " " + wBar + " " + formatMoney(ww.revenue) + "\u20ac");
-      }
-      var sMsg = "\uD83D\uDCC5 <b>CA par semaine (cette annee)</b>\n<i>(Shopify uniquement)</i>\n\n<code>" + wLines.join("\n") + "</code>";
+    var sOrder = [1, 2, 3, 4, 5, 6, 0];
+    var sLines = [];
+    for (var sn = 0; sn < sOrder.length; sn++) {
+      var idx = sOrder[sn];
+      var barLen = sMaxRev > 0 ? Math.round((sDayTotals[idx] / sMaxRev) * 8) : 0;
+      var sBar = "";
+      for (var sb = 0; sb < barLen; sb++) sBar += "\u2588";
+      for (var se = barLen; se < 8; se++) sBar += "\u2591";
+      var sPct = sTotalRev > 0 ? ((sDayTotals[idx] / sTotalRev) * 100).toFixed(1) : "0";
+      var sAvg = sDayOrders[idx] > 0 ? Math.round(sDayTotals[idx] / sDayOrders[idx]) : 0;
+      sLines.push(JOUR_NAMES[idx].substring(0, 3) + " " + sBar + " " + formatMoney(sDayTotals[idx]) + "\u20ac (" + sPct + "%) " + sDayOrders[idx] + "cmd");
     }
-    var avgDay = sKeys.length > 0 ? Math.round(totalRev / sKeys.length) : 0;
-    sMsg += "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n\uD83D\uDCB0 <b>Total : " + formatMoney(totalRev) + " \u20ac (" + totalOrd + " cmd)</b>\n\uD83D\uDCCA <b>Moyenne/jour : " + formatMoney(avgDay) + " \u20ac</b>\n\uD83C\uDFC6 <b>Meilleur jour : " + JOUR_NAMES[dayData[bestDay].day] + " " + bestDay.split("-")[2] + "/" + bestDay.split("-")[1] + " (" + formatMoney(dayData[bestDay].revenue) + " \u20ac)</b>";
+    var sMsg = "\uD83D\uDCC5 <b>CA par jour de la semaine</b>\n<i>(" + semLabel + ")</i>\n\n<code>" + sLines.join("\n") + "</code>" +
+      "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n" +
+      "\uD83C\uDFC6 <b>Meilleur jour : " + JOUR_NAMES[sBestDay] + " (" + formatMoney(sDayTotals[sBestDay]) + " \u20ac)</b>\n" +
+      "\uD83D\uDCB0 <b>Total : " + formatMoney(sTotalRev) + " \u20ac (" + sTotalOrd + " cmd)</b>";
     var semReturnButtons = [
       [
         { text: "\uD83D\uDCC5 7 jours", callback_data: "sem:7" },
