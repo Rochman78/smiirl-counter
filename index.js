@@ -460,7 +460,14 @@ app.get("/debug", async function (req, res) {
     lastUpdate: new Date().toISOString(),
   });
 });
-
+app.get("/test", async function (req, res) {
+  var stats = resetDailyStatsIfNeeded();
+  var msg = "🛒 <b>Nouvelle commande sur LFC !</b>\n" +
+    "💰 Montant : 1 250 €\n" +
+    "📊 Recap du jour : " + formatMoney(stats.revenue + 1250) + " € (" + (stats.orders + 1) + " commande" + (stats.orders + 1 > 1 ? "s" : "") + ")";
+  await sendTelegram(msg);
+  res.json({ ok: true, message: "Notification test envoyee !" });
+});
 var PORT = process.env.PORT || 3000;
 app.listen(PORT, function () {
   var shops = getShops();
