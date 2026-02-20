@@ -237,6 +237,19 @@ async function getStatsForShop(shopName, period) {
   var revenue = 0;
   var orderCount = 0;
 
+  if (shopName === "ALL_AMAZON") {
+    for (var a = 0; a < amazonAccounts.length; a++) {
+      var allAmzOrders = await getAmazonOrders(amazonAccounts[a], dates.start);
+      for (var b = 0; b < allAmzOrders.length; b++) {
+        if (allAmzOrders[b].OrderTotal && allAmzOrders[b].OrderTotal.Amount) {
+          revenue += parseFloat(allAmzOrders[b].OrderTotal.Amount);
+        }
+        orderCount += 1;
+      }
+    }
+    return { revenue: revenue, orders: orderCount };
+  }
+
   for (var i = 0; i < shops.length; i++) {
     if (shops[i].name === shopName) {
       var orders = await getShopifyOrders(shops[i], dates.start);
@@ -317,7 +330,10 @@ function getShopButtons() {
   }
 
   if (row.length > 0) buttons.push(row);
-  buttons.push([{ text: "🌍 ALL", callback_data: "s:ALL" }]);
+  buttons.push([
+    { text: "📦 ALL AMAZON", callback_data: "s:ALL_AMAZON" },
+    { text: "🌍 ALL", callback_data: "s:ALL" }
+  ]);
   return buttons;
 }
 
