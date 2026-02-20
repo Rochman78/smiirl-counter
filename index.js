@@ -1114,7 +1114,7 @@ app.post("/webhook", async function (req, res) {
         var tpItems = tpOrders[tpj].line_items || [];
         for (var tpk = 0; tpk < tpItems.length; tpk++) {
           var tpSku = tpItems[tpk].sku || "no-sku";
-          var tpName = tpItems[tpk].title || "Inconnu";
+          var tpName = tpSku === "no-sku" ? "Sur-mesure" : (tpItems[tpk].title || "Inconnu");
           var tpVariant = tpItems[tpk].variant_title || "";
           var tpQty = tpItems[tpk].quantity || 1;
           var tpRev = parseFloat(tpItems[tpk].price || 0) * tpQty;
