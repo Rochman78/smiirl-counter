@@ -491,7 +491,10 @@ async function getStatsForAll(period) {
 
 function getMainButtons() {
   return [
-    [{ text: "\uD83D\uDCB8 Ventes", callback_data: "menu_ventes" }]
+    [
+      { text: "\uD83D\uDCB8 Ventes", callback_data: "menu_ventes" },
+      { text: "\uD83C\uDFC6 Top Produits", callback_data: "tp_menu" }
+    ]
   ];
 }
 
@@ -1094,6 +1097,25 @@ app.post("/webhook", async function (req, res) {
 
   // CA par jour (semaine)
 
+  if (data === "tp_menu") {
+    var tpMenuButtons = [
+      [
+        { text: "\uD83D\uDCC5 Aujourd'hui", callback_data: "tp:d" },
+        { text: "\uD83D\uDCC5 7 jours", callback_data: "tp:7" }
+      ],
+      [
+        { text: "\uD83D\uDCC6 Ce mois", callback_data: "tp:m" },
+        { text: "\uD83D\uDCCA Cette annee", callback_data: "tp:a" }
+      ],
+      [
+        { text: "\uD83C\uDF0D Tout", callback_data: "tp:all" },
+        { text: "\u2B05\uFE0F Retour", callback_data: "main_menu" }
+      ]
+    ];
+    await editMessage(chatId, messageId, "\uD83C\uDFC6 <b>Top produits</b>\n\nChoisissez la periode :", tpMenuButtons);
+    return;
+  }
+  
   // Top produits par periode
   if (data.indexOf("tp:") === 0) {
     var tpPeriod = data.substring(3);
