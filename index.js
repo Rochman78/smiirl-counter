@@ -332,9 +332,6 @@ function getPeriodButtons(shopName) {
       { text: "📊 Cette annee", callback_data: "p:" + shopName + ":a" }
     ],
     [
-      { text: "🏆 Total", callback_data: "p:" + shopName + ":t" }
-    ],
-    [
       { text: "⬅️ Retour", callback_data: "back" }
     ]
   ];
