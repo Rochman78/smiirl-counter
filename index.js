@@ -999,44 +999,20 @@ app.post("/webhook", async function (req, res) {
 
   // Commande /topproduits
   if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/topproduits") === 0) {
-    var now3 = new Date();
-    var mStart = new Date(now3.getFullYear(), now3.getMonth(), 1).toISOString();
-    var pShops = getShops();
-    var productMap = {};
-    for (var pi = 0; pi < pShops.length; pi++) {
-      var pOrders = await getShopifyOrders(pShops[pi], mStart);
-      for (var pj = 0; pj < pOrders.length; pj++) {
-        var items = pOrders[pj].line_items || [];
-        for (var pk = 0; pk < items.length; pk++) {
-          var pSku = items[pk].sku || "no-sku";
-          var pName = items[pk].title || "Inconnu";
-          var pVariant = items[pk].variant_title || "";
-          var pQty = items[pk].quantity || 1;
-          var pRev = parseFloat(items[pk].price || 0) * pQty;
-          if (!productMap[pSku]) { productMap[pSku] = { name: pName, variant: pVariant, qty: 0, revenue: 0 }; }
-          productMap[pSku].qty += pQty;
-          productMap[pSku].revenue += pRev;
-        }
-      }
-    }
-    var productList = [];
-    var pKeys = Object.keys(productMap);
-    for (var pl = 0; pl < pKeys.length; pl++) {
-      productList.push({ sku: pKeys[pl], name: productMap[pKeys[pl]].name, variant: productMap[pKeys[pl]].variant, qty: productMap[pKeys[pl]].qty, revenue: productMap[pKeys[pl]].revenue });
-    }
-    productList.sort(function(a, b) { return b.revenue - a.revenue; });
-    var topN = Math.min(productList.length, 10);
-    var pMedals = ["\uD83E\uDD47", "\uD83E\uDD48", "\uD83E\uDD49"];
-    var pLines = [];
-    for (var pm = 0; pm < topN; pm++) {
-      var pMedal = pm < 3 ? pMedals[pm] : (pm + 1) + ".";
-      var displayName = productList[pm].name.substring(0, 35);
-      if (productList[pm].variant) { displayName += " (" + productList[pm].variant.substring(0, 15) + ")"; }
-      pLines.push(pMedal + " <b>" + displayName + "</b>\n     \uD83D\uDCB0 " + formatMoney(productList[pm].revenue) + " \u20ac \u00b7 " + productList[pm].qty + " vendus\n     SKU: <code>" + productList[pm].sku + "</code>");
-    }
-    var prodMoisName = MOIS_NAMES[now3.getMonth()];
-    var topProdMsg = "\uD83C\uDFC6 <b>Top 10 produits " + prodMoisName + "</b>\n<i>(Shopify - par SKU)</i>\n\n" + pLines.join("\n\n");
-    await sendTelegram(topProdMsg, getMainButtons());
+    var tpButtons = [
+      [
+        { text: "\uD83D\uDCC5 Aujourd'hui", callback_data: "tp:d" },
+        { text: "\uD83D\uDCC5 7 jours", callback_data: "tp:7" }
+      ],
+      [
+        { text: "\uD83D\uDCC6 Ce mois", callback_data: "tp:m" },
+        { text: "\uD83D\uDCCA Cette annee", callback_data: "tp:a" }
+      ],
+      [
+        { text: "\uD83C\uDF0D Tout", callback_data: "tp:all" }
+      ]
+    ];
+    await sendTelegram("\uD83C\uDFC6 <b>Top produits</b>\n\nChoisissez la periode :", tpButtons);
     return;
   }
 
@@ -1117,6 +1093,73 @@ app.post("/webhook", async function (req, res) {
   }
 
   // CA par jour (semaine)
+
+  // Top produits par periode
+  if (data.indexOf("tp:") === 0) {
+    var tpPeriod = data.substring(3);
+    var now5 = new Date();
+    var tpStart;
+    var tpLabel;
+    if (tpPeriod === "d") { tpStart = new Date(now5.getFullYear(), now5.getMonth(), now5.getDate()); tpLabel = "aujourd'hui"; }
+    else if (tpPeriod === "7") { tpStart = new Date(now5.getFullYear(), now5.getMonth(), now5.getDate() - 6); tpLabel = "7 derniers jours"; }
+    else if (tpPeriod === "m") { tpStart = new Date(now5.getFullYear(), now5.getMonth(), 1); tpLabel = MOIS_NAMES[now5.getMonth()]; }
+    else if (tpPeriod === "a") { tpStart = new Date(now5.getFullYear(), 0, 1); tpLabel = "cette annee"; }
+    else { tpStart = new Date(2020, 0, 1); tpLabel = "tout"; }
+    await editMessage(chatId, messageId, "\u23F3 <b>Chargement...</b>", null);
+    var tpShops = getShops();
+    var tpMap = {};
+    for (var tpi = 0; tpi < tpShops.length; tpi++) {
+      var tpOrders = await getShopifyOrders(tpShops[tpi], tpStart.toISOString());
+      for (var tpj = 0; tpj < tpOrders.length; tpj++) {
+        var tpItems = tpOrders[tpj].line_items || [];
+        for (var tpk = 0; tpk < tpItems.length; tpk++) {
+          var tpSku = tpItems[tpk].sku || "no-sku";
+          var tpName = tpItems[tpk].title || "Inconnu";
+          var tpVariant = tpItems[tpk].variant_title || "";
+          var tpQty = tpItems[tpk].quantity || 1;
+          var tpRev = parseFloat(tpItems[tpk].price || 0) * tpQty;
+          if (!tpMap[tpSku]) { tpMap[tpSku] = { name: tpName, variant: tpVariant, qty: 0, revenue: 0 }; }
+          tpMap[tpSku].qty += tpQty;
+          tpMap[tpSku].revenue += tpRev;
+        }
+      }
+    }
+    var tpList = [];
+    var tpKeys = Object.keys(tpMap);
+    for (var tpl = 0; tpl < tpKeys.length; tpl++) {
+      tpList.push({ sku: tpKeys[tpl], name: tpMap[tpKeys[tpl]].name, variant: tpMap[tpKeys[tpl]].variant, qty: tpMap[tpKeys[tpl]].qty, revenue: tpMap[tpKeys[tpl]].revenue });
+    }
+    tpList.sort(function(a, b) { return b.revenue - a.revenue; });
+    var tpN = Math.min(tpList.length, 10);
+    var tpMedals = ["\uD83E\uDD47", "\uD83E\uDD48", "\uD83E\uDD49"];
+    var tpLines = [];
+    for (var tpm = 0; tpm < tpN; tpm++) {
+      var tpMedal = tpm < 3 ? tpMedals[tpm] : (tpm + 1) + ".";
+      var tpDisplayName = tpList[tpm].name.substring(0, 35);
+      if (tpList[tpm].variant) { tpDisplayName += " (" + tpList[tpm].variant.substring(0, 15) + ")"; }
+      tpLines.push(tpMedal + " <b>" + tpDisplayName + "</b>\n     \uD83D\uDCB0 " + formatMoney(tpList[tpm].revenue) + " \u20ac \u00b7 " + tpList[tpm].qty + " vendus\n     SKU: <code>" + tpList[tpm].sku + "</code>");
+    }
+    var tpMsg = "\uD83C\uDFC6 <b>Top 10 produits (" + tpLabel + ")</b>\n<i>(Shopify - par SKU)</i>\n\n";
+    if (tpLines.length === 0) { tpMsg += "Aucune vente sur cette periode."; }
+    else { tpMsg += tpLines.join("\n\n"); }
+    var tpReturnButtons = [
+      [
+        { text: "\uD83D\uDCC5 Aujourd'hui", callback_data: "tp:d" },
+        { text: "\uD83D\uDCC5 7 jours", callback_data: "tp:7" }
+      ],
+      [
+        { text: "\uD83D\uDCC6 Ce mois", callback_data: "tp:m" },
+        { text: "\uD83D\uDCCA Cette annee", callback_data: "tp:a" }
+      ],
+      [
+        { text: "\uD83C\uDF0D Tout", callback_data: "tp:all" },
+        { text: "\u2B05\uFE0F Retour", callback_data: "main_menu" }
+      ]
+    ];
+    await editMessage(chatId, messageId, tpMsg, tpReturnButtons);
+    return;
+  }
+  
  // CA par jour de la semaine
   if (data.indexOf("sem:") === 0) {
     var semPeriod = data.substring(4);
