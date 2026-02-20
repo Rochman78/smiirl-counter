@@ -439,7 +439,9 @@ function buildRecapMessage() {
     if (keys[i].charAt(0) === "_") continue;
     var s = stats[keys[i]];
     if (s.revenue > 0) {
-      lines.push("   🔹 " + keys[i] + " : " + formatMoney(s.revenue) + " €");
+      var pct = stats._totalRevenue > 0 ? ((s.revenue / stats._totalRevenue) * 100).toFixed(1) : "0";
+      var avg = s.orders > 0 ? Math.round(s.revenue / s.orders) : 0;
+      lines.push("   🔹 " + keys[i] + " : " + formatMoney(s.revenue) + " € (" + pct + "%) · 🛒 " + s.orders + " · Ø " + formatMoney(avg) + " €");
     }
   }
   return "\n\n📊 <b>Recap du jour :</b>\n" + lines.join("\n") +
