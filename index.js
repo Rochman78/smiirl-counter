@@ -459,35 +459,48 @@ async function fetchAllAmzAdsSpend() {
   yesterday.setDate(yesterday.getDate() - 1);
   var dateStr = getParisDateStr(yesterday);
   var today = getTodayKey();
-
-  // Fetch ALL countries in parallel
-  var promises = AMZ_ADS_PROFILES.map(async function(profile) {
-    var entries = [];
-    try {
-      var spend = await fetchAmzAdsSpendForProfile(accessToken, profile, dateStr);
-      if (spend > 0) {
-        entries.push({ date: dateStr, platform: "amazon", shop: profile.country, spend: spend });
-        console.log("AMZ Ads " + profile.country + " (" + dateStr + "): " + spend);
-      }
-      var spendToday = await fetchAmzAdsSpendForProfile(accessToken, profile, today);
-      if (spendToday > 0) {
-        entries.push({ date: today, platform: "amazon", shop: profile.country, spend: spendToday });
-        console.log("AMZ Ads " + profile.country + " (" + today + "): " + spendToday);
-      }
-    } catch (e) { console.error("AMZ Ads " + profile.country + " error: " + e.message); }
-    return entries;
-  });
-
-  var allResults = await Promise.all(promises);
   var results = [];
-  for (var i = 0; i < allResults.length; i++) {
-    for (var j = 0; j < allResults[i].length; j++) {
-      results.push(allResults[i][j]);
+
+  // Batch 3 countries at a time to avoid rate limits
+  for (var b = 0; b < AMZ_ADS_PROFILES.length; b += 3) {
+    var batch = AMZ_ADS_PROFILES.slice(b, b + 3);
+    var batchPromises = batch.map(async function(profile) {
+      var entries = [];
+      try {
+        var spend = await fetchAmzAdsSpendForProfile(accessToken, profile, dateStr);
+        if (spend > 0) {
+          entries.push({ date: dateStr, platform: "amazon", shop: profile.country, spend: spend });
+          console.log("AMZ Ads " + profile.country + " (" + dateStr + "): " + spend);
+        }
+        var spendToday = await fetchAmzAdsSpendForProfile(accessToken, profile, today);
+        if (spendToday > 0) {
+          entries.push({ date: today, platform: "amazon", shop: profile.country, spend: spendToday });
+          console.log("AMZ Ads " + profile.country + " (" + today + "): " + spendToday);
+        }
+      } catch (e) { console.error("AMZ Ads " + profile.country + " error: " + e.message); }
+      return entries;
+    });
+
+    var batchResults = await Promise.all(batchPromises);
+    for (var bi = 0; bi < batchResults.length; bi++) {
+      for (var bj = 0; bj < batchResults[bi].length; bj++) {
+        results.push(batchResults[bi][bj]);
+      }
     }
+    // Update cache after each batch so data is available immediately
+    if (results.length > 0) {
+      cachedAmzAdsSpend = results.slice();
+      lastAmzAdsFetch = Date.now();
+    }
+    // Small pause between batches
+    if (b + 3 < AMZ_ADS_PROFILES.length) await sleep(2000);
   }
 
-  cachedAmzAdsSpend = results;
-  lastAmzAdsFetch = Date.now();
+  // Only update if we got results (never overwrite with empty)
+  if (results.length > 0) {
+    cachedAmzAdsSpend = results;
+    lastAmzAdsFetch = Date.now();
+  }
   console.log("Amazon Ads spend fetched: " + results.length + " entries");
 }
 
