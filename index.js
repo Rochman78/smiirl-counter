@@ -374,85 +374,70 @@ async function getAmzAdsAccessToken() {
 
 async function fetchAmzAdsSpendForProfile(accessToken, profile, dateStr) {
   var clientId = process.env.AMZ_ADS_CLIENT_ID;
-  var adProducts = [
-    { name: "SPONSORED_PRODUCTS", reportType: "spCampaigns", spendCol: "spend" },
-    { name: "SPONSORED_BRANDS", reportType: "sbCampaigns", spendCol: "cost" },
-    { name: "SPONSORED_DISPLAY", reportType: "sdCampaigns", spendCol: "cost" }
-  ];
   var zlib = require("zlib");
 
-  // Fetch all 3 ad types in parallel
-  var spendPromises = adProducts.map(async function(adProduct) {
-    try {
-      var payload = {
-        name: adProduct.name + " spend",
-        startDate: dateStr,
-        endDate: dateStr,
-        configuration: {
-          adProduct: adProduct.name,
-          groupBy: ["campaign"],
-          columns: [adProduct.spendCol],
-          reportTypeId: adProduct.reportType,
-          timeUnit: "SUMMARY",
-          format: "GZIP_JSON"
-        }
-      };
-      console.log("  [" + profile.country + "] Creating " + adProduct.name + " report for " + dateStr);
-      var createResp = await fetch(profile.endpoint + "/reporting/reports", {
-        method: "POST",
+  try {
+    // Only Sponsored Products (that's all you use)
+    var payload = {
+      name: "SP spend " + profile.country,
+      startDate: dateStr,
+      endDate: dateStr,
+      configuration: {
+        adProduct: "SPONSORED_PRODUCTS",
+        groupBy: ["campaign"],
+        columns: ["spend"],
+        reportTypeId: "spCampaigns",
+        timeUnit: "SUMMARY",
+        format: "GZIP_JSON"
+      }
+    };
+    var createResp = await fetch(profile.endpoint + "/reporting/reports", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + accessToken,
+        "Amazon-Advertising-API-ClientId": clientId,
+        "Amazon-Advertising-API-Scope": profile.profileId,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+    if (createResp.status === 429) { console.log("  [" + profile.country + "] Throttled, skipping"); return 0; }
+    if (!createResp.ok) { console.log("  [" + profile.country + "] Create failed: " + createResp.status); return 0; }
+    var createData = await createResp.json();
+    var reportId = createData.reportId;
+    if (!reportId) return 0;
+    console.log("  [" + profile.country + "] Report created for " + dateStr);
+
+    // Poll with longer waits
+    for (var p = 0; p < 20; p++) {
+      await sleep(5000);
+      var statusResp = await fetch(profile.endpoint + "/reporting/reports/" + reportId, {
         headers: {
           "Authorization": "Bearer " + accessToken,
           "Amazon-Advertising-API-ClientId": clientId,
-          "Amazon-Advertising-API-Scope": profile.profileId,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload)
+          "Amazon-Advertising-API-Scope": profile.profileId
+        }
       });
-      var createText = await createResp.text();
-      console.log("  [" + profile.country + "] " + adProduct.name + " create response (" + createResp.status + "): " + createText.substring(0, 200));
-      if (!createResp.ok) return 0;
-      var createData = JSON.parse(createText);
-      var reportId = createData.reportId;
-      if (!reportId) { console.log("  [" + profile.country + "] No reportId"); return 0; }
-
-      var downloadUrl = null;
-      for (var p = 0; p < 10; p++) {
-        await sleep(3000);
-        var statusResp = await fetch(profile.endpoint + "/reporting/reports/" + reportId, {
-          headers: {
-            "Authorization": "Bearer " + accessToken,
-            "Amazon-Advertising-API-ClientId": clientId,
-            "Amazon-Advertising-API-Scope": profile.profileId
-          }
-        });
-        if (!statusResp.ok) { console.log("  [" + profile.country + "] Status check failed: " + statusResp.status); break; }
-        var statusData = await statusResp.json();
-        console.log("  [" + profile.country + "] " + adProduct.name + " status: " + statusData.status);
-        if (statusData.status === "COMPLETED") { downloadUrl = statusData.url; break; }
-        if (statusData.status === "FAILURE") { console.log("  [" + profile.country + "] Report FAILED: " + JSON.stringify(statusData).substring(0, 200)); break; }
+      if (!statusResp.ok) { console.log("  [" + profile.country + "] Poll error: " + statusResp.status); return 0; }
+      var statusData = await statusResp.json();
+      if (statusData.status === "COMPLETED") {
+        var dlResp = await fetch(statusData.url);
+        if (!dlResp.ok) return 0;
+        var buffer = await dlResp.arrayBuffer();
+        var decompressed = zlib.gunzipSync(Buffer.from(buffer));
+        var rows = JSON.parse(decompressed.toString());
+        var total = 0;
+        for (var r = 0; r < rows.length; r++) {
+          if (rows[r].spend) total += parseFloat(rows[r].spend);
+        }
+        console.log("  [" + profile.country + "] " + dateStr + " = " + total.toFixed(2) + " EUR");
+        return Math.round(total * 100) / 100;
       }
-      if (!downloadUrl) { console.log("  [" + profile.country + "] " + adProduct.name + " no download URL"); return 0; }
-
-      var dlResp = await fetch(downloadUrl);
-      if (!dlResp.ok) return 0;
-      var buffer = await dlResp.arrayBuffer();
-      var decompressed = zlib.gunzipSync(Buffer.from(buffer));
-      var jsonStr = decompressed.toString();
-      console.log("  [" + profile.country + "] " + adProduct.name + " data: " + jsonStr.substring(0, 200));
-      var rows = JSON.parse(jsonStr);
-      var total = 0;
-      for (var r = 0; r < rows.length; r++) {
-        var val = rows[r].spend || rows[r].cost || 0;
-        if (val) total += parseFloat(val);
-      }
-      return total;
-    } catch (e) { console.error("  [" + profile.country + "] " + adProduct.name + " error: " + e.message); return 0; }
-  });
-
-  var spends = await Promise.all(spendPromises);
-  var totalSpend = 0;
-  for (var s = 0; s < spends.length; s++) { totalSpend += spends[s]; }
-  return Math.round(totalSpend * 100) / 100;
+      if (statusData.status === "FAILURE") { console.log("  [" + profile.country + "] Report FAILED"); return 0; }
+    }
+    console.log("  [" + profile.country + "] Timeout");
+    return 0;
+  } catch (e) { console.error("  [" + profile.country + "] Error: " + e.message); return 0; }
 }
 
 async function fetchAllAmzAdsSpend() {
@@ -468,42 +453,29 @@ async function fetchAllAmzAdsSpend() {
   var today = getTodayKey();
   var results = [];
 
-  // Batch 3 countries at a time to avoid rate limits
-  for (var b = 0; b < AMZ_ADS_PROFILES.length; b += 3) {
-    var batch = AMZ_ADS_PROFILES.slice(b, b + 3);
-    var batchPromises = batch.map(async function(profile) {
-      var entries = [];
-      try {
-        var spend = await fetchAmzAdsSpendForProfile(accessToken, profile, dateStr);
-        if (spend > 0) {
-          entries.push({ date: dateStr, platform: "amazon", shop: profile.country, spend: spend });
-          console.log("AMZ Ads " + profile.country + " (" + dateStr + "): " + spend);
-        }
-        var spendToday = await fetchAmzAdsSpendForProfile(accessToken, profile, today);
-        if (spendToday > 0) {
-          entries.push({ date: today, platform: "amazon", shop: profile.country, spend: spendToday });
-          console.log("AMZ Ads " + profile.country + " (" + today + "): " + spendToday);
-        }
-      } catch (e) { console.error("AMZ Ads " + profile.country + " error: " + e.message); }
-      return entries;
-    });
-
-    var batchResults = await Promise.all(batchPromises);
-    for (var bi = 0; bi < batchResults.length; bi++) {
-      for (var bj = 0; bj < batchResults[bi].length; bj++) {
-        results.push(batchResults[bi][bj]);
-      }
+  // Sequential: one country at a time with pause between each
+  for (var i = 0; i < AMZ_ADS_PROFILES.length; i++) {
+    var profile = AMZ_ADS_PROFILES[i];
+    // Yesterday
+    var spend = await fetchAmzAdsSpendForProfile(accessToken, profile, dateStr);
+    if (spend > 0) {
+      results.push({ date: dateStr, platform: "amazon", shop: profile.country, spend: spend });
     }
-    // Update cache after each batch so data is available immediately
+    await sleep(2000);
+    // Today
+    var spendToday = await fetchAmzAdsSpendForProfile(accessToken, profile, today);
+    if (spendToday > 0) {
+      results.push({ date: today, platform: "amazon", shop: profile.country, spend: spendToday });
+    }
+    // Update cache after each country
     if (results.length > 0) {
       cachedAmzAdsSpend = results.slice();
       lastAmzAdsFetch = Date.now();
     }
-    // Small pause between batches
-    if (b + 3 < AMZ_ADS_PROFILES.length) await sleep(2000);
+    // Pause between countries
+    if (i < AMZ_ADS_PROFILES.length - 1) await sleep(3000);
   }
 
-  // Only update if we got results (never overwrite with empty)
   if (results.length > 0) {
     cachedAmzAdsSpend = results;
     lastAmzAdsFetch = Date.now();
