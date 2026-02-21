@@ -1272,7 +1272,8 @@ app.post("/webhook", async function (req, res) {
   if (req.body && req.body.message && req.body.message.text && req.body.message.text.trim() === "/heures") {
     var hrButtons = [
       [{ text: "\uD83D\uDCC5 Aujourd'hui", callback_data: "hr:d" }, { text: "\uD83D\uDCC5 7 jours", callback_data: "hr:7" }],
-      [{ text: "\uD83D\uDCC6 Ce mois", callback_data: "hr:m" }, { text: "\uD83D\uDCCA Cette annee", callback_data: "hr:a" }]
+      [{ text: "\uD83D\uDCC6 Ce mois", callback_data: "hr:m" }, { text: "\uD83D\uDCCA Cette annee", callback_data: "hr:a" }],
+      [{ text: "\uD83D\uDDFA Heatmap heures x jours", callback_data: "hm_menu" }]
     ];
     await sendTelegram("\u23F0 <b>Ventes par heure</b>\n\nChoisissez la periode :", hrButtons);
     return;
@@ -1292,7 +1293,22 @@ app.post("/webhook", async function (req, res) {
     var omDailyNeeded = omDaysLeft > 0 ? Math.round((cachedObjectifMois - omStats.revenue) / omDaysLeft) : 0;
     var omPct = cachedObjectifMois > 0 ? ((omStats.revenue / cachedObjectifMois) * 100).toFixed(1) : "0";
     var omMoisName = MOIS_NAMES[omParis.getMonth()];
-    var omMsg = "\uD83D\uDCCA <b>Objectif " + omMoisName + "</b>\n\n\uD83C\uDFAF <b>Objectif : " + formatMoney(cachedObjectifMois) + " \u20ac</b>\n\uD83D\uDCB0 <b>CA actuel : " + formatMoney(omStats.revenue) + " \u20ac (" + omPct + "%)</b>\n" + omBar + "\n\n\uD83D\uDCC5 Jour " + omDayOfMonth + "/" + omDaysInMonth + " (" + omDaysLeft + " jours restants)\n\uD83D\uDD2E Prediction fin de mois : <b>" + formatMoney(omPrediction) + " \u20ac</b>\n\uD83D\uDCB8 Il faut <b>" + formatMoney(omDailyNeeded) + " \u20ac/jour</b> pour atteindre l'objectif";
+    // ROAS mensuel
+    var omAdsRows = await getAdsRows();
+    var omMonthSpend = 0;
+    for (var omi = 0; omi < omAdsRows.length; omi++) {
+      var omRowDate = new Date(omAdsRows[omi].date);
+      if (omRowDate.getMonth() === omParis.getMonth() && omRowDate.getFullYear() === omParis.getFullYear()) {
+        omMonthSpend += omAdsRows[omi].spend;
+      }
+    }
+    var omRoasLine = "";
+    if (omMonthSpend > 0) {
+      var omRoas = (omStats.revenue / omMonthSpend).toFixed(1);
+      var omMargeAds = omStats.revenue - omMonthSpend;
+      omRoasLine = "\n\n\uD83D\uDCE3 <b>Ads ce mois</b>\n\uD83D\uDCB8 Depense : " + formatMoney(omMonthSpend) + " \u20ac\n\uD83D\uDCCA ROAS : " + omRoas + "x\n\uD83D\uDCB0 CA - Ads : " + formatMoney(omMargeAds) + " \u20ac";
+    }
+    var omMsg = "\uD83D\uDCCA <b>Objectif " + omMoisName + "</b>\n\n\uD83C\uDFAF <b>Objectif : " + formatMoney(cachedObjectifMois) + " \u20ac</b>\n\uD83D\uDCB0 <b>CA actuel : " + formatMoney(omStats.revenue) + " \u20ac (" + omPct + "%)</b>\n" + omBar + "\n\n\uD83D\uDCC5 Jour " + omDayOfMonth + "/" + omDaysInMonth + " (" + omDaysLeft + " jours restants)\n\uD83D\uDD2E Prediction fin de mois : <b>" + formatMoney(omPrediction) + " \u20ac</b>\n\uD83D\uDCB8 Il faut <b>" + formatMoney(omDailyNeeded) + " \u20ac/jour</b> pour atteindre l'objectif" + omRoasLine;
     await sendTelegram(omMsg, getMainButtons());
     return;
   }
@@ -1390,7 +1406,7 @@ app.post("/webhook", async function (req, res) {
 
   // Commande /help
   if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/help") === 0) {
-    var helpMsg = "\uD83D\uDCCB <b>Commandes disponibles</b>\n\n\uD83D\uDCCA /stats - Recap du jour + boutons\n\uD83C\uDFC6 /top - Classement boutiques (jour)\n\uD83C\uDFC6 /topmois - Classement boutiques (mois)\n\uD83C\uDFC6 /topproduits - Top produits\n\uD83D\uDCC8 /compare - Aujourd'hui vs hier vs semaine derniere\n\uD83D\uDCC6 /mois - Ce mois vs mois dernier\n\uD83D\uDCC5 /semaine - CA par jour de la semaine\n\uD83D\uDCE3 /ads - Depenses Ads / ROAS\n\u23F0 /heures - Ventes par heure\n\uD83C\uDFAF /objectifmois - Objectif mensuel\n\uD83C\uDFC6 /records - Records de vente\n\uD83D\uDCB0 /tranches - Repartition par prix\n\uD83D\uDCC8 /courbe - Courbe des 7 derniers jours\n\u2753 /help - Cette aide\n\n\u23F0 <b>Automatique :</b>\n\u2600\uFE0F 8h - Rapport du matin + ROAS\n\uD83C\uDF19 20h - Rapport du soir + ROAS\n\uD83D\uDCC5 Lundi 8h - Rapport hebdo\n\uD83C\uDFAF Alerte objectif atteint + streak\n\uD83D\uDD25 Alerte grosse commande (+1 000 \u20ac)\n\uD83C\uDF89 Milestones (commandes & CA)\n\uD83D\uDD2E Prediction fin de journee\n\uD83C\uDFC6 Alerte nouveau record";
+    var helpMsg = "\uD83D\uDCCB <b>Commandes disponibles</b>\n\n\uD83D\uDCCA /stats - Recap du jour + boutons\n\uD83C\uDFC6 /top - Classement boutiques (jour)\n\uD83C\uDFC6 /topmois - Classement boutiques (mois)\n\uD83C\uDFC6 /topproduits - Top produits\n\uD83D\uDCC8 /compare - Aujourd'hui vs hier vs semaine derniere\n\uD83D\uDCC6 /mois - Ce mois vs mois dernier\n\uD83D\uDCC5 /semaine - CA par jour de la semaine\n\uD83D\uDCE3 /ads - Depenses Ads / ROAS\n\u23F0 /heures - Ventes par heure + heatmap\n\uD83C\uDFAF /objectifmois - Objectif mensuel + ROAS\n\uD83C\uDFC6 /records - Records de vente\n\uD83D\uDCB0 /tranches - Repartition par prix\n\uD83D\uDCC8 /courbe - Courbe des 7 derniers jours\n\u2753 /help - Cette aide\n\n\u23F0 <b>Automatique :</b>\n\u2600\uFE0F 8h - Rapport du matin + ROAS\n\uD83C\uDF19 20h - Rapport du soir + ROAS\n\uD83D\uDCC5 Lundi 8h - Rapport hebdo\n\uD83C\uDFAF Alerte objectif atteint + streak\n\uD83D\uDD25 Alerte grosse commande (+1 000 \u20ac)\n\uD83C\uDF89 Milestones (commandes & CA)\n\uD83D\uDD2E Prediction fin de journee\n\uD83C\uDFC6 Alerte nouveau record";
     await sendTelegram(helpMsg, null);
     return;
   }
@@ -1737,6 +1753,7 @@ app.post("/webhook", async function (req, res) {
     var hrMenuButtons = [
       [{ text: "\uD83D\uDCC5 Aujourd'hui", callback_data: "hr:d" }, { text: "\uD83D\uDCC5 7 jours", callback_data: "hr:7" }],
       [{ text: "\uD83D\uDCC6 Ce mois", callback_data: "hr:m" }, { text: "\uD83D\uDCCA Cette annee", callback_data: "hr:a" }],
+      [{ text: "\uD83D\uDDFA Heatmap heures x jours", callback_data: "hm_menu" }],
       [{ text: "\u2B05\uFE0F Retour", callback_data: "main_menu" }]
     ];
     await editMessage(chatId, messageId, "\u23F0 <b>Ventes par heure</b>\n\nChoisissez la periode :", hrMenuButtons);
@@ -1829,6 +1846,156 @@ app.post("/webhook", async function (req, res) {
       [{ text: "\u2B05\uFE0F Menu principal", callback_data: "main_menu" }]
     ];
     await editMessage(chatId, messageId, hrsMsg, hrsReturnButtons);
+    return;
+  }
+
+  // ============================================================
+  // HEATMAP CALLBACKS (heures x jours)
+  // ============================================================
+
+  if (data === "hm_menu") {
+    var hmButtons = [
+      [{ text: "\uD83D\uDCC5 7 jours", callback_data: "hm:7" }, { text: "\uD83D\uDCC6 30 jours", callback_data: "hm:30" }],
+      [{ text: "\uD83D\uDCCA Cette annee", callback_data: "hm:365" }, { text: "\uD83C\uDF0D Tout", callback_data: "hm:all" }],
+      [{ text: "\u2B05\uFE0F Retour", callback_data: "hr_menu" }]
+    ];
+    await editMessage(chatId, messageId, "\uD83D\uDDFA <b>Heatmap heures x jours</b>\n\nChoisissez la periode :", hmButtons);
+    return;
+  }
+
+  if (data.indexOf("hm:") === 0) {
+    var hmPeriod = data.substring(3);
+    await editMessage(chatId, messageId, "\u23F3 <b>Chargement heatmap...</b>", null);
+    var hmParis = getParisDate();
+    var hmStart;
+    var hmLabel;
+    if (hmPeriod === "7") { hmStart = new Date(hmParis.getFullYear(), hmParis.getMonth(), hmParis.getDate() - 6); hmLabel = "7 jours"; }
+    else if (hmPeriod === "30") { hmStart = new Date(hmParis.getFullYear(), hmParis.getMonth(), hmParis.getDate() - 29); hmLabel = "30 jours"; }
+    else if (hmPeriod === "365") { hmStart = new Date(hmParis.getFullYear(), 0, 1); hmLabel = "cette annee"; }
+    else { hmStart = new Date(2020, 0, 1); hmLabel = "tout"; }
+
+    // 7 days x 4 time slots: Matin(6-12), Midi(12-14), Aprem(14-18), Soir(18-23), Nuit(23-6)
+    var hmSlots = { "Matin": [6,7,8,9,10,11], "Midi": [12,13], "Aprem": [14,15,16,17], "Soir": [18,19,20,21,22], "Nuit": [23,0,1,2,3,4,5] };
+    var hmSlotNames = ["Matin", "Midi", "Aprem", "Soir", "Nuit"];
+    // grid[day][slot] = { revenue, orders }
+    var hmGrid = {};
+    for (var hmd = 0; hmd < 7; hmd++) {
+      hmGrid[hmd] = {};
+      for (var hms = 0; hms < hmSlotNames.length; hms++) {
+        hmGrid[hmd][hmSlotNames[hms]] = { revenue: 0, orders: 0 };
+      }
+    }
+
+    function getSlotForHour(h) {
+      for (var si = 0; si < hmSlotNames.length; si++) {
+        var slot = hmSlots[hmSlotNames[si]];
+        for (var sj = 0; sj < slot.length; sj++) { if (slot[sj] === h) return hmSlotNames[si]; }
+      }
+      return "Nuit";
+    }
+
+    // Shopify
+    var hmShops = getShops();
+    for (var hmi = 0; hmi < hmShops.length; hmi++) {
+      var hmOrders = await getShopifyOrders(hmShops[hmi], hmStart.toISOString());
+      for (var hmj = 0; hmj < hmOrders.length; hmj++) {
+        var hmCreated = new Date(hmOrders[hmj].created_at);
+        var hmParisTime = new Date(hmCreated.toLocaleString("en-US", { timeZone: "Europe/Paris" }));
+        var hmDay = hmParisTime.getDay();
+        var hmHour = hmParisTime.getHours();
+        var hmSlot = getSlotForHour(hmHour);
+        var hmAmount = parseFloat(hmOrders[hmj].total_price || 0);
+        hmGrid[hmDay][hmSlot].revenue += hmAmount;
+        hmGrid[hmDay][hmSlot].orders += 1;
+      }
+    }
+    // Amazon
+    var hmAmazon = getAmazonAccounts();
+    for (var hmk = 0; hmk < hmAmazon.length; hmk++) {
+      var hmAmz = await getAmazonOrdersCached(hmAmazon[hmk], hmStart.toISOString(), "heatmap_" + hmPeriod, 10 * 60 * 1000);
+      for (var hml = 0; hml < hmAmz.length; hml++) {
+        var hmAmzDate = new Date(hmAmz[hml].PurchaseDate);
+        var hmAmzParis = new Date(hmAmzDate.toLocaleString("en-US", { timeZone: "Europe/Paris" }));
+        var hmAmzDay = hmAmzParis.getDay();
+        var hmAmzHour = hmAmzParis.getHours();
+        var hmAmzSlot = getSlotForHour(hmAmzHour);
+        var hmAmzAmount = (hmAmz[hml].OrderTotal && hmAmz[hml].OrderTotal.Amount) ? parseFloat(hmAmz[hml].OrderTotal.Amount) : 0;
+        hmGrid[hmAmzDay][hmAmzSlot].revenue += hmAmzAmount;
+        hmGrid[hmAmzDay][hmAmzSlot].orders += 1;
+      }
+    }
+
+    // Find max for intensity
+    var hmMax = 0;
+    for (var hma = 0; hma < 7; hma++) {
+      for (var hmb = 0; hmb < hmSlotNames.length; hmb++) {
+        if (hmGrid[hma][hmSlotNames[hmb]].revenue > hmMax) hmMax = hmGrid[hma][hmSlotNames[hmb]].revenue;
+      }
+    }
+
+    // Build heatmap with blocks
+    function hmBlock(val) {
+      if (hmMax === 0) return "\u2591";
+      var ratio = val / hmMax;
+      if (ratio === 0) return "\u2591";
+      if (ratio < 0.25) return "\u2591";
+      if (ratio < 0.5) return "\u2592";
+      if (ratio < 0.75) return "\u2593";
+      return "\u2588";
+    }
+
+    var hmDayOrder = [1, 2, 3, 4, 5, 6, 0];
+    var hmDayShort = { 1: "Lun", 2: "Mar", 3: "Mer", 4: "Jeu", 5: "Ven", 6: "Sam", 0: "Dim" };
+    var hmHeader = "      Mat  Mid  Apr  Soi  Nui";
+    var hmLines = [hmHeader];
+    for (var hmc = 0; hmc < hmDayOrder.length; hmc++) {
+      var hmDayIdx = hmDayOrder[hmc];
+      var hmLine = hmDayShort[hmDayIdx] + "  ";
+      for (var hmds = 0; hmds < hmSlotNames.length; hmds++) {
+        var hmCell = hmGrid[hmDayIdx][hmSlotNames[hmds]];
+        var hmB = hmBlock(hmCell.revenue);
+        hmLine += " " + hmB + hmB + hmB + " ";
+      }
+      hmLines.push(hmLine);
+    }
+
+    // Find best combo
+    var hmBestDay = 0; var hmBestSlot = "Matin"; var hmBestRev = 0;
+    for (var hme = 0; hme < 7; hme++) {
+      for (var hmf = 0; hmf < hmSlotNames.length; hmf++) {
+        if (hmGrid[hme][hmSlotNames[hmf]].revenue > hmBestRev) {
+          hmBestRev = hmGrid[hme][hmSlotNames[hmf]].revenue;
+          hmBestDay = hme;
+          hmBestSlot = hmSlotNames[hmf];
+        }
+      }
+    }
+
+    // Top 5 combos
+    var hmCombos = [];
+    for (var hmg = 0; hmg < 7; hmg++) {
+      for (var hmh = 0; hmh < hmSlotNames.length; hmh++) {
+        var hmComboData = hmGrid[hmg][hmSlotNames[hmh]];
+        if (hmComboData.revenue > 0) {
+          hmCombos.push({ day: JOUR_NAMES[hmg], slot: hmSlotNames[hmh], revenue: hmComboData.revenue, orders: hmComboData.orders });
+        }
+      }
+    }
+    hmCombos.sort(function(a, b) { return b.revenue - a.revenue; });
+    var hmTop5 = [];
+    for (var hmti = 0; hmti < Math.min(5, hmCombos.length); hmti++) {
+      var hmc5 = hmCombos[hmti];
+      hmTop5.push((hmti + 1) + ". " + hmc5.day + " " + hmc5.slot + " : " + formatMoney(hmc5.revenue) + "\u20ac (" + hmc5.orders + " cmd)");
+    }
+
+    var hmLegend = "\u2591 = faible  \u2592 = moyen  \u2593 = fort  \u2588 = max";
+    var hmMsg = "\uD83D\uDDFA <b>Heatmap heures x jours (" + hmLabel + ")</b>\n\n<code>" + hmLines.join("\n") + "</code>\n\n" + hmLegend +
+      "\n\n\uD83C\uDFC6 <b>Top 5 creneaux :</b>\n" + hmTop5.join("\n");
+    var hmReturnButtons = [
+      [{ text: "\uD83D\uDCC5 7j", callback_data: "hm:7" }, { text: "\uD83D\uDCC6 30j", callback_data: "hm:30" }, { text: "\uD83D\uDCCA Annee", callback_data: "hm:365" }],
+      [{ text: "\u2B05\uFE0F Retour", callback_data: "hr_menu" }]
+    ];
+    await editMessage(chatId, messageId, hmMsg, hmReturnButtons);
     return;
   }
 
