@@ -1646,7 +1646,8 @@ app.post("/webhook", async function (req, res) {
   // Bouton Rire
   if (data === "btn_rire") {
     var rireMsg = "\uD83E\uDD21 " + getMotivation();
-    await editMessage(chatId, messageId, rireMsg, getMainButtons());
+    var rireButtons = [[{ text: "\uD83E\uDD21 Encore !", callback_data: "btn_rire" }, { text: "\uD83C\uDFE0", callback_data: "main_menu" }]];
+    await editMessage(chatId, messageId, rireMsg, rireButtons);
     return;
   }
 
