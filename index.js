@@ -341,15 +341,15 @@ var lastAdsFetch = 0;
 // ============================================================
 
 var AMZ_ADS_PROFILES = [
-  { profileId: "4431575093569404", country: "AMZ FR", endpoint: "https://advertising-api-eu.amazon.com" },
-  { profileId: "2677311899396330", country: "AMZ DE", endpoint: "https://advertising-api-eu.amazon.com" },
-  { profileId: "106574421746698", country: "AMZ IT", endpoint: "https://advertising-api-eu.amazon.com" },
-  { profileId: "2272924267067837", country: "AMZ ES", endpoint: "https://advertising-api-eu.amazon.com" },
-  { profileId: "3080727678543205", country: "AMZ UK", endpoint: "https://advertising-api-eu.amazon.com" },
-  { profileId: "2021778061762746", country: "AMZ NL", endpoint: "https://advertising-api-eu.amazon.com" },
-  { profileId: "182690087547494", country: "AMZ BE", endpoint: "https://advertising-api-eu.amazon.com" },
-  { profileId: "854508534654303", country: "AMZ SE", endpoint: "https://advertising-api-eu.amazon.com" },
-  { profileId: "3393000200356209", country: "AMZ PL", endpoint: "https://advertising-api-eu.amazon.com" }
+  { profileId: "4431575093569404", country: "\uD83C\uDDEB\uD83C\uDDF7 AMZ FR", endpoint: "https://advertising-api-eu.amazon.com" },
+  { profileId: "2677311899396330", country: "\uD83C\uDDE9\uD83C\uDDEA AMZ DE", endpoint: "https://advertising-api-eu.amazon.com" },
+  { profileId: "106574421746698", country: "\uD83C\uDDEE\uD83C\uDDF9 AMZ IT", endpoint: "https://advertising-api-eu.amazon.com" },
+  { profileId: "2272924267067837", country: "\uD83C\uDDEA\uD83C\uDDF8 AMZ ES", endpoint: "https://advertising-api-eu.amazon.com" },
+  { profileId: "3080727678543205", country: "\uD83C\uDDEC\uD83C\uDDE7 AMZ UK", endpoint: "https://advertising-api-eu.amazon.com" },
+  { profileId: "2021778061762746", country: "\uD83C\uDDF3\uD83C\uDDF1 AMZ NL", endpoint: "https://advertising-api-eu.amazon.com" },
+  { profileId: "182690087547494", country: "\uD83C\uDDE7\uD83C\uDDEA AMZ BE", endpoint: "https://advertising-api-eu.amazon.com" },
+  { profileId: "854508534654303", country: "\uD83C\uDDF8\uD83C\uDDEA AMZ SE", endpoint: "https://advertising-api-eu.amazon.com" },
+  { profileId: "3393000200356209", country: "\uD83C\uDDF5\uD83C\uDDF1 AMZ PL", endpoint: "https://advertising-api-eu.amazon.com" }
 ];
 
 var cachedAmzAdsSpend = [];
@@ -829,6 +829,24 @@ async function getStatsForShop(shopName, period, marketplaceId) {
       orderCount += allAmzOrders.length;
     }
     return { revenue: revenue, orders: orderCount };
+  }
+  // Check if it's an Amazon country shop (e.g., "🇫🇷 AMZ FR")
+  if (shopName.indexOf("AMZ ") >= 0) {
+    var mpId = null;
+    var mpKeys = Object.keys(MARKETPLACE_MAP);
+    for (var mk = 0; mk < mpKeys.length; mk++) {
+      var mp = MARKETPLACE_MAP[mpKeys[mk]];
+      if (shopName.indexOf("AMZ " + mp.name) >= 0) { mpId = mpKeys[mk]; break; }
+    }
+    if (mpId) {
+      for (var b2 = 0; b2 < amazonAccounts.length; b2++) {
+        var amzOrdersAll2 = await getAmazonOrdersCached(amazonAccounts[b2], dates.start, "stats_amazon_" + period, 5 * 60 * 1000);
+        var filtered2 = filterOrdersByMarketplace(amzOrdersAll2, mpId);
+        revenue += getAmazonRevenue(filtered2);
+        orderCount += filtered2.length;
+      }
+      return { revenue: revenue, orders: orderCount };
+    }
   }
   if (marketplaceId) {
     for (var b = 0; b < amazonAccounts.length; b++) {
