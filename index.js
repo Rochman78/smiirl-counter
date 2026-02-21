@@ -711,6 +711,15 @@ function getMainButtons() {
       { text: "\uD83D\uDCB8 Ventes", callback_data: "menu_ventes" },
       { text: "\uD83C\uDFC6 Top Produits", callback_data: "tp_menu" },
       { text: "\uD83D\uDCE3 Ads", callback_data: "ads_menu" }
+    ],
+    [
+      { text: "\u23F0 Heures", callback_data: "hr_menu" },
+      { text: "\uD83D\uDCC8 Courbe", callback_data: "btn_courbe" },
+      { text: "\uD83D\uDCCA Compare", callback_data: "btn_compare" }
+    ],
+    [
+      { text: "\uD83C\uDFAF Obj. mois", callback_data: "btn_objectifmois" },
+      { text: "\uD83C\uDFC6 Records", callback_data: "btn_records" }
     ]
   ];
 }
@@ -1438,6 +1447,121 @@ app.post("/webhook", async function (req, res) {
     await editMessage(chatId, messageId, "\uD83D\uDCCA <b>Dashboard</b>" + mainRecap, getMainButtons());
     return;
   }
+
+  // Bouton Compare
+  if (data === "btn_compare") {
+    await editMessage(chatId, messageId, "\u23F3 <b>Chargement...</b>", null);
+    var cHour = getParisHour(); var cMin = getParisMinute();
+    var todayStats = await getStatsForAll("d");
+    var yesterdayStats = await getStatsForAll("h");
+    var sameDayStats = await getSameDayLastWeekStats();
+    var diff = todayStats.revenue - yesterdayStats.revenue;
+    var arrow = diff >= 0 ? "\uD83D\uDCC8" : "\uD83D\uDCC9";
+    var sign = diff >= 0 ? "+" : "";
+    var pctChange = yesterdayStats.revenue > 0 ? ((diff / yesterdayStats.revenue) * 100).toFixed(1) : "N/A";
+    var todayAvg = todayStats.orders > 0 ? Math.round(todayStats.revenue / todayStats.orders) : 0;
+    var yesterdayAvg = yesterdayStats.orders > 0 ? Math.round(yesterdayStats.revenue / yesterdayStats.orders) : 0;
+    var sdDiff = todayStats.revenue - sameDayStats.revenue;
+    var sdArrow = sdDiff >= 0 ? "\uD83D\uDCC8" : "\uD83D\uDCC9";
+    var sdSign = sdDiff >= 0 ? "+" : "";
+    var sdPct = sameDayStats.revenue > 0 ? ((sdDiff / sameDayStats.revenue) * 100).toFixed(1) : "N/A";
+    var sdAvg = sameDayStats.orders > 0 ? Math.round(sameDayStats.revenue / sameDayStats.orders) : 0;
+    var parisC = getParisDate();
+    var sdDayName = JOUR_NAMES[parisC.getDay()];
+    var compareMsg = "\uD83D\uDCCA <b>Comparaison</b>\n\n\uD83D\uDCC5 <b>Aujourd'hui</b> (a " + cHour + "h" + String(cMin).padStart(2, "0") + ")\n     \uD83D\uDCB0 " + formatMoney(todayStats.revenue) + " \u20ac\n     \uD83D\uDED2 " + todayStats.orders + " cmd \u00b7 \u00d8 " + formatMoney(todayAvg) + " \u20ac\n\n\u23EA <b>Hier (journee complete)</b>\n     \uD83D\uDCB0 " + formatMoney(yesterdayStats.revenue) + " \u20ac\n     \uD83D\uDED2 " + yesterdayStats.orders + " cmd \u00b7 \u00d8 " + formatMoney(yesterdayAvg) + " \u20ac\n\n\uD83D\uDD04 <b>" + sdDayName + " dernier</b>\n     \uD83D\uDCB0 " + formatMoney(sameDayStats.revenue) + " \u20ac\n     \uD83D\uDED2 " + sameDayStats.orders + " cmd \u00b7 \u00d8 " + formatMoney(sdAvg) + " \u20ac\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n" + arrow + " vs hier : <b>" + sign + formatMoney(Math.abs(diff)) + " \u20ac (" + sign + pctChange + "%)</b>\n" + sdArrow + " vs " + sdDayName.toLowerCase() + " : <b>" + sdSign + formatMoney(Math.abs(sdDiff)) + " \u20ac (" + sdSign + sdPct + "%)</b>";
+    await editMessage(chatId, messageId, compareMsg, getMainButtons());
+    return;
+  }
+
+  // Bouton Courbe
+  if (data === "btn_courbe") {
+    await editMessage(chatId, messageId, "\u23F3 <b>Chargement courbe...</b>", null);
+    var cParis2 = getParisDate();
+    var cShops2 = getShops();
+    var cAmazon2 = getAmazonAccounts();
+    var cDays2 = [];
+    for (var cd2 = 6; cd2 >= 0; cd2--) {
+      var cDayDate2 = new Date(cParis2.getFullYear(), cParis2.getMonth(), cParis2.getDate() - cd2);
+      var cDayEnd2 = new Date(cParis2.getFullYear(), cParis2.getMonth(), cParis2.getDate() - cd2 + 1);
+      var cDayRev2 = 0; var cDayOrd2 = 0;
+      for (var ci2 = 0; ci2 < cShops2.length; ci2++) {
+        var cOrders2 = await getShopifyOrders(cShops2[ci2], cDayDate2.toISOString());
+        for (var cj2 = 0; cj2 < cOrders2.length; cj2++) {
+          var cCreated2 = new Date(cOrders2[cj2].created_at);
+          if (cCreated2 >= cDayDate2 && cCreated2 < cDayEnd2) { cDayRev2 += parseFloat(cOrders2[cj2].total_price || 0); cDayOrd2 += 1; }
+        }
+      }
+      for (var ck2 = 0; ck2 < cAmazon2.length; ck2++) {
+        var cAmz2 = await getAmazonOrdersCached(cAmazon2[ck2], cDayDate2.toISOString(), "courbe2_" + cd2, 10 * 60 * 1000);
+        for (var cl2 = 0; cl2 < cAmz2.length; cl2++) {
+          var cAmzDate2 = new Date(cAmz2[cl2].PurchaseDate);
+          if (cAmzDate2 >= cDayDate2 && cAmzDate2 < cDayEnd2) { cDayRev2 += (cAmz2[cl2].OrderTotal && cAmz2[cl2].OrderTotal.Amount) ? parseFloat(cAmz2[cl2].OrderTotal.Amount) : 0; cDayOrd2 += 1; }
+        }
+      }
+      cDays2.push({ date: cDayDate2, revenue: cDayRev2, orders: cDayOrd2 });
+    }
+    var cMax2 = 0; var cTotalRev2 = 0; var cTotalOrd2 = 0;
+    for (var cm2 = 0; cm2 < cDays2.length; cm2++) { if (cDays2[cm2].revenue > cMax2) cMax2 = cDays2[cm2].revenue; cTotalRev2 += cDays2[cm2].revenue; cTotalOrd2 += cDays2[cm2].orders; }
+    var cLines2 = [];
+    for (var cn2 = 0; cn2 < cDays2.length; cn2++) {
+      var cBarLen2 = cMax2 > 0 ? Math.round((cDays2[cn2].revenue / cMax2) * 8) : 0;
+      var cBar2 = ""; for (var cb2 = 0; cb2 < cBarLen2; cb2++) cBar2 += "\u2588"; for (var ce2 = cBarLen2; ce2 < 8; ce2++) cBar2 += "\u2591";
+      var cDayName2 = JOUR_NAMES[cDays2[cn2].date.getDay()].substring(0, 3);
+      var cDateStr2 = String(cDays2[cn2].date.getDate()).padStart(2, "0") + "/" + String(cDays2[cn2].date.getMonth() + 1).padStart(2, "0");
+      cLines2.push(cDayName2 + " " + cDateStr2 + " " + cBar2 + " " + formatMoney(cDays2[cn2].revenue) + "\u20ac");
+    }
+    var cAvg2 = cTotalRev2 > 0 ? Math.round(cTotalRev2 / 7) : 0;
+    var cBestIdx2 = 0; for (var co2 = 1; co2 < cDays2.length; co2++) { if (cDays2[co2].revenue > cDays2[cBestIdx2].revenue) cBestIdx2 = co2; }
+    var cBestName2 = JOUR_NAMES[cDays2[cBestIdx2].date.getDay()];
+    var cMsg2 = "\uD83D\uDCC8 <b>Courbe des 7 derniers jours</b>\n\n<code>" + cLines2.join("\n") + "</code>\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n\uD83D\uDCB0 <b>Total : " + formatMoney(cTotalRev2) + " \u20ac (" + cTotalOrd2 + " cmd)</b>\n\uD83D\uDCCA <b>Moyenne : " + formatMoney(cAvg2) + " \u20ac/jour</b>\n\uD83C\uDFC6 <b>Meilleur : " + cBestName2 + " (" + formatMoney(cDays2[cBestIdx2].revenue) + " \u20ac)</b>";
+    await editMessage(chatId, messageId, cMsg2, getMainButtons());
+    return;
+  }
+
+  // Bouton Objectif mois
+  if (data === "btn_objectifmois") {
+    await getObjectif();
+    if (cachedObjectifMois <= 0) { await editMessage(chatId, messageId, "\uD83D\uDCCA <b>Objectif mensuel</b>\n\nAucun objectif mensuel defini.\nAjoutez une 2eme ligne dans votre Sheet Objectif :\n<code>mois;50000</code>", getMainButtons()); return; }
+    await editMessage(chatId, messageId, "\u23F3 <b>Chargement...</b>", null);
+    var omStats2 = await getStatsForAll("m");
+    var omBar2 = buildProgressBar(omStats2.revenue, cachedObjectifMois);
+    var omParis2 = getParisDate();
+    var omDayOfMonth2 = omParis2.getDate();
+    var omDaysInMonth2 = new Date(omParis2.getFullYear(), omParis2.getMonth() + 1, 0).getDate();
+    var omDaysLeft2 = omDaysInMonth2 - omDayOfMonth2;
+    var omPrediction2 = omDayOfMonth2 > 0 ? Math.round((omStats2.revenue / omDayOfMonth2) * omDaysInMonth2) : 0;
+    var omDailyNeeded2 = omDaysLeft2 > 0 ? Math.round((cachedObjectifMois - omStats2.revenue) / omDaysLeft2) : 0;
+    var omPct2 = cachedObjectifMois > 0 ? ((omStats2.revenue / cachedObjectifMois) * 100).toFixed(1) : "0";
+    var omMoisName2 = MOIS_NAMES[omParis2.getMonth()];
+    var omAdsRows2 = await getAdsRows();
+    var omMonthSpend2 = 0;
+    for (var omi2 = 0; omi2 < omAdsRows2.length; omi2++) {
+      var omRowDate2 = new Date(omAdsRows2[omi2].date);
+      if (omRowDate2.getMonth() === omParis2.getMonth() && omRowDate2.getFullYear() === omParis2.getFullYear()) { omMonthSpend2 += omAdsRows2[omi2].spend; }
+    }
+    var omRoasLine2 = "";
+    if (omMonthSpend2 > 0) {
+      var omRoas2 = (omStats2.revenue / omMonthSpend2).toFixed(1);
+      var omMargeAds2 = omStats2.revenue - omMonthSpend2;
+      omRoasLine2 = "\n\n\uD83D\uDCE3 <b>Ads ce mois</b>\n\uD83D\uDCB8 Depense : " + formatMoney(omMonthSpend2) + " \u20ac\n\uD83D\uDCCA ROAS : " + omRoas2 + "x\n\uD83D\uDCB0 CA - Ads : " + formatMoney(omMargeAds2) + " \u20ac";
+    }
+    var omMsg2 = "\uD83D\uDCCA <b>Objectif " + omMoisName2 + "</b>\n\n\uD83C\uDFAF <b>Objectif : " + formatMoney(cachedObjectifMois) + " \u20ac</b>\n\uD83D\uDCB0 <b>CA actuel : " + formatMoney(omStats2.revenue) + " \u20ac (" + omPct2 + "%)</b>\n" + omBar2 + "\n\n\uD83D\uDCC5 Jour " + omDayOfMonth2 + "/" + omDaysInMonth2 + " (" + omDaysLeft2 + " jours restants)\n\uD83D\uDD2E Prediction fin de mois : <b>" + formatMoney(omPrediction2) + " \u20ac</b>\n\uD83D\uDCB8 Il faut <b>" + formatMoney(omDailyNeeded2) + " \u20ac/jour</b> pour atteindre l'objectif" + omRoasLine2;
+    await editMessage(chatId, messageId, omMsg2, getMainButtons());
+    return;
+  }
+
+  // Bouton Records
+  if (data === "btn_records") {
+    var rStats2 = resetDailyStatsIfNeeded();
+    var rMsg2 = "\uD83C\uDFC6 <b>Records</b>\n<i>(depuis le dernier redemarrage)</i>\n\n";
+    rMsg2 += "\uD83D\uDCB0 <b>Meilleur jour CA</b>\n     " + formatMoney(records.bestDayRevenue) + " \u20ac (" + records.bestDayOrders + " cmd)\n     \uD83D\uDCC5 " + (records.bestDayDate || "N/A") + "\n\n";
+    rMsg2 += "\uD83D\uDC8E <b>Plus grosse commande</b>\n     " + formatMoney(records.bestOrderAmount) + " \u20ac\n     \uD83D\uDCC5 " + (records.bestOrderDate || "N/A") + "\n\n";
+    rMsg2 += "\uD83D\uDCE6 <b>Record commandes/jour</b>\n     " + records.mostOrdersDay + " commandes\n     \uD83D\uDCC5 " + (records.mostOrdersDate || "N/A");
+    rMsg2 += "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n\uD83D\uDCC5 <b>Aujourd'hui</b>\n     \uD83D\uDCB0 CA : " + formatMoney(rStats2._totalRevenue) + " \u20ac\n     \uD83D\uDCE6 Commandes : " + rStats2._totalOrders + "\n     \uD83D\uDC8E Plus grosse : " + formatMoney(rStats2._biggestOrder) + " \u20ac";
+    await editMessage(chatId, messageId, rMsg2, getMainButtons());
+    return;
+  }
+
   if (data === "menu_ventes") {
     await editMessage(chatId, messageId, "\uD83C\uDFEA <b>Choisissez une boutique :</b>", getShopButtons());
     return;
