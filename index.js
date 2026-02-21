@@ -166,7 +166,11 @@ var MARKETPLACE_MAP = {
 // ============================================================
 
 var cachedObjectif = 0;
+var cachedObjectifMois = 0;
 var lastObjectifFetch = 0;
+
+// Records
+var records = { bestDayRevenue: 0, bestDayDate: "", bestDayOrders: 0, bestOrderAmount: 0, bestOrderDate: "", mostOrdersDay: 0, mostOrdersDate: "" };
 
 async function getObjectif() {
   var now = Date.now();
@@ -187,6 +191,14 @@ async function getObjectif() {
         cachedObjectif = val;
         lastObjectifFetch = now;
       }
+    }
+    // Ligne 2 = objectif mensuel
+    if (lines.length >= 2) {
+      var sep2 = lines[1].indexOf(";") >= 0 ? ";" : ",";
+      var parts2 = lines[1].split(sep2);
+      var raw2 = (parts2[1] || "").replace(/[^0-9.,]/g, "").replace(",", ".");
+      var val2 = parseFloat(raw2);
+      if (!isNaN(val2) && val2 > 0) { cachedObjectifMois = val2; }
     }
     return cachedObjectif;
   } catch (error) {
@@ -767,7 +779,7 @@ function getTodayKey() {
 function resetDailyStatsIfNeeded() {
   var today = getTodayKey();
   if (!dailyShopStats._date || dailyShopStats._date !== today) {
-    dailyShopStats = { _date: today, _totalRevenue: 0, _totalOrders: 0 };
+    dailyShopStats = { _date: today, _totalRevenue: 0, _totalOrders: 0, _hourlyRevenue: new Array(24).fill(0), _hourlyOrders: new Array(24).fill(0), _biggestOrder: 0, _priceRanges: { r0_50: 0, r50_100: 0, r100_200: 0, r200_500: 0, r500plus: 0 } };
     objectifAlertSent = false;
     milestonesOrdersSent = {};
     milestonesRevenueSent = {};
@@ -782,6 +794,18 @@ function addToShopStats(shopName, amount) {
   stats[shopName].orders += 1;
   stats._totalRevenue += amount;
   stats._totalOrders += 1;
+  // Hourly tracking
+  var hour = getParisHour();
+  stats._hourlyRevenue[hour] += amount;
+  stats._hourlyOrders[hour] += 1;
+  // Biggest order
+  if (amount > stats._biggestOrder) { stats._biggestOrder = amount; }
+  // Price ranges
+  if (amount < 50) stats._priceRanges.r0_50 += 1;
+  else if (amount < 100) stats._priceRanges.r50_100 += 1;
+  else if (amount < 200) stats._priceRanges.r100_200 += 1;
+  else if (amount < 500) stats._priceRanges.r200_500 += 1;
+  else stats._priceRanges.r500plus += 1;
 }
 
 function buildTopBoutiques() {
@@ -869,6 +893,7 @@ async function checkNewOrders() {
             await sendTelegram(msg, getMainButtons());
             await checkObjectifAtteint();
             await checkMilestones(resetDailyStatsIfNeeded());
+            await checkRecords(amount);
           }
         }
       }
@@ -897,6 +922,7 @@ async function checkNewOrders() {
             await sendTelegram(amzMsg, getMainButtons());
             await checkObjectifAtteint();
             await checkMilestones(resetDailyStatsIfNeeded());
+            await checkRecords(amzAmount);
           }
         }
       }
@@ -914,6 +940,20 @@ async function checkNewOrders() {
       if (stats._totalRevenue >= REVENUE_MILESTONES[mj]) { milestonesRevenueSent[REVENUE_MILESTONES[mj]] = true; }
     }
     console.log("Premier scan: " + stats._totalOrders + " commandes (" + formatMoney(stats._totalRevenue) + " EUR)");
+    // Init records with current day data
+    if (stats._totalRevenue > records.bestDayRevenue) {
+      records.bestDayRevenue = stats._totalRevenue;
+      records.bestDayOrders = stats._totalOrders;
+      records.bestDayDate = getTodayKey();
+    }
+    if (stats._totalOrders > records.mostOrdersDay) {
+      records.mostOrdersDay = stats._totalOrders;
+      records.mostOrdersDate = getTodayKey();
+    }
+    if (stats._biggestOrder > records.bestOrderAmount) {
+      records.bestOrderAmount = stats._biggestOrder;
+      records.bestOrderDate = getTodayKey();
+    }
   }
 }
 
@@ -927,6 +967,33 @@ async function checkObjectifAtteint() {
     var bar = buildProgressBar(stats._totalRevenue, objectif);
     var streakLine = streakDays > 1 ? "\n\uD83D\uDD25 <b>" + streakDays + " jours consecutifs !</b>" : "";
     var msg = "\uD83C\uDFAF\uD83C\uDF89 <b>OBJECTIF DU JOUR ATTEINT !</b>\n\n\uD83D\uDCB0 " + formatMoney(stats._totalRevenue) + " \u20ac / " + formatMoney(objectif) + " \u20ac\n" + bar + streakLine + "\n\nBravo ! \uD83D\uDE80";
+    await sendTelegram(msg, null);
+  }
+}
+
+async function checkRecords(amount) {
+  var stats = resetDailyStatsIfNeeded();
+  var newRecord = false;
+  // Biggest single order
+  if (amount > records.bestOrderAmount) {
+    records.bestOrderAmount = amount;
+    records.bestOrderDate = getTodayKey();
+    newRecord = true;
+  }
+  // Best day revenue (check live)
+  if (stats._totalRevenue > records.bestDayRevenue) {
+    records.bestDayRevenue = stats._totalRevenue;
+    records.bestDayOrders = stats._totalOrders;
+    records.bestDayDate = getTodayKey();
+  }
+  // Most orders in a day
+  if (stats._totalOrders > records.mostOrdersDay) {
+    records.mostOrdersDay = stats._totalOrders;
+    records.mostOrdersDate = getTodayKey();
+  }
+  // Alert for biggest order record
+  if (newRecord && amount >= 200) {
+    var msg = "\uD83C\uDFC6 <b>NOUVEAU RECORD !</b>\n\n\uD83D\uDCB0 Plus grosse commande : <b>" + formatMoney(amount) + " \u20ac</b>\n\nLe record est battu ! \uD83D\uDE80";
     await sendTelegram(msg, null);
   }
 }
@@ -1201,9 +1268,145 @@ app.post("/webhook", async function (req, res) {
     return;
   }
 
+  // Commande /heures
+  if (req.body && req.body.message && req.body.message.text && req.body.message.text.trim() === "/heures") {
+    var hStats = resetDailyStatsIfNeeded();
+    var hMax = 0;
+    for (var hi = 0; hi < 24; hi++) { if (hStats._hourlyRevenue[hi] > hMax) hMax = hStats._hourlyRevenue[hi]; }
+    if (hMax === 0) { await sendTelegram("\u23F0 <b>Ventes par heure</b>\n\nAucune vente aujourd'hui.", null); return; }
+    var hLines = [];
+    for (var hj = 0; hj < 24; hj++) {
+      var hRev = hStats._hourlyRevenue[hj];
+      var hOrd = hStats._hourlyOrders[hj];
+      if (hRev > 0 || hj <= getParisHour()) {
+        var hBarLen = hMax > 0 ? Math.round((hRev / hMax) * 8) : 0;
+        var hBar = "";
+        for (var hb = 0; hb < hBarLen; hb++) hBar += "\u2588";
+        for (var he = hBarLen; he < 8; he++) hBar += "\u2591";
+        var hLabel = String(hj).padStart(2, "0") + "h";
+        hLines.push(hLabel + " " + hBar + " " + formatMoney(hRev) + "\u20ac (" + hOrd + ")");
+      }
+    }
+    var hBestHour = 0; var hBestRev = 0;
+    for (var hk = 0; hk < 24; hk++) { if (hStats._hourlyRevenue[hk] > hBestRev) { hBestRev = hStats._hourlyRevenue[hk]; hBestHour = hk; } }
+    var hMsg = "\u23F0 <b>Ventes par heure (aujourd'hui)</b>\n\n<code>" + hLines.join("\n") + "</code>\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n\uD83C\uDFC6 <b>Meilleure heure : " + String(hBestHour).padStart(2, "0") + "h (" + formatMoney(hBestRev) + " \u20ac)</b>";
+    await sendTelegram(hMsg, getMainButtons());
+    return;
+  }
+
+  // Commande /objectifmois
+  if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/objectifmois") === 0) {
+    await getObjectif();
+    if (cachedObjectifMois <= 0) { await sendTelegram("\uD83D\uDCCA <b>Objectif mensuel</b>\n\nAucun objectif mensuel defini.\nAjoutez une 2eme ligne dans votre Sheet Objectif :\n<code>mois;50000</code>", null); return; }
+    var omStats = await getStatsForAll("m");
+    var omBar = buildProgressBar(omStats.revenue, cachedObjectifMois);
+    var omParis = getParisDate();
+    var omDayOfMonth = omParis.getDate();
+    var omDaysInMonth = new Date(omParis.getFullYear(), omParis.getMonth() + 1, 0).getDate();
+    var omDaysLeft = omDaysInMonth - omDayOfMonth;
+    var omPrediction = omDayOfMonth > 0 ? Math.round((omStats.revenue / omDayOfMonth) * omDaysInMonth) : 0;
+    var omDailyNeeded = omDaysLeft > 0 ? Math.round((cachedObjectifMois - omStats.revenue) / omDaysLeft) : 0;
+    var omPct = cachedObjectifMois > 0 ? ((omStats.revenue / cachedObjectifMois) * 100).toFixed(1) : "0";
+    var omMoisName = MOIS_NAMES[omParis.getMonth()];
+    var omMsg = "\uD83D\uDCCA <b>Objectif " + omMoisName + "</b>\n\n\uD83C\uDFAF <b>Objectif : " + formatMoney(cachedObjectifMois) + " \u20ac</b>\n\uD83D\uDCB0 <b>CA actuel : " + formatMoney(omStats.revenue) + " \u20ac (" + omPct + "%)</b>\n" + omBar + "\n\n\uD83D\uDCC5 Jour " + omDayOfMonth + "/" + omDaysInMonth + " (" + omDaysLeft + " jours restants)\n\uD83D\uDD2E Prediction fin de mois : <b>" + formatMoney(omPrediction) + " \u20ac</b>\n\uD83D\uDCB8 Il faut <b>" + formatMoney(omDailyNeeded) + " \u20ac/jour</b> pour atteindre l'objectif";
+    await sendTelegram(omMsg, getMainButtons());
+    return;
+  }
+
+  // Commande /records
+  if (req.body && req.body.message && req.body.message.text && req.body.message.text.trim() === "/records") {
+    var rStats = resetDailyStatsIfNeeded();
+    var rMsg = "\uD83C\uDFC6 <b>Records</b>\n<i>(depuis le dernier redemarrage)</i>\n\n";
+    rMsg += "\uD83D\uDCB0 <b>Meilleur jour CA</b>\n     " + formatMoney(records.bestDayRevenue) + " \u20ac (" + records.bestDayOrders + " cmd)\n     \uD83D\uDCC5 " + (records.bestDayDate || "N/A") + "\n\n";
+    rMsg += "\uD83D\uDC8E <b>Plus grosse commande</b>\n     " + formatMoney(records.bestOrderAmount) + " \u20ac\n     \uD83D\uDCC5 " + (records.bestOrderDate || "N/A") + "\n\n";
+    rMsg += "\uD83D\uDCE6 <b>Record commandes/jour</b>\n     " + records.mostOrdersDay + " commandes\n     \uD83D\uDCC5 " + (records.mostOrdersDate || "N/A");
+    // Today's records
+    rMsg += "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n\uD83D\uDCC5 <b>Aujourd'hui</b>\n     \uD83D\uDCB0 CA : " + formatMoney(rStats._totalRevenue) + " \u20ac\n     \uD83D\uDCE6 Commandes : " + rStats._totalOrders + "\n     \uD83D\uDC8E Plus grosse : " + formatMoney(rStats._biggestOrder) + " \u20ac";
+    await sendTelegram(rMsg, getMainButtons());
+    return;
+  }
+
+  // Commande /tranches
+  if (req.body && req.body.message && req.body.message.text && req.body.message.text.trim() === "/tranches") {
+    var tStats = resetDailyStatsIfNeeded();
+    if (tStats._totalOrders === 0) { await sendTelegram("\uD83D\uDCB0 <b>Tranches de prix</b>\n\nAucune vente aujourd'hui.", null); return; }
+    var tRanges = tStats._priceRanges;
+    var tTotal = tStats._totalOrders;
+    var tMax = Math.max(tRanges.r0_50, tRanges.r50_100, tRanges.r100_200, tRanges.r200_500, tRanges.r500plus);
+    function tBar(val) {
+      var len = tMax > 0 ? Math.round((val / tMax) * 8) : 0;
+      var b = ""; for (var i = 0; i < len; i++) b += "\u2588"; for (var j = len; j < 8; j++) b += "\u2591";
+      var pct = tTotal > 0 ? ((val / tTotal) * 100).toFixed(0) : "0";
+      return b + " " + val + " cmd (" + pct + "%)";
+    }
+    var tMsg = "\uD83D\uDCB0 <b>Repartition par tranche de prix</b>\n<i>(aujourd'hui)</i>\n\n<code>" +
+      "0-50\u20ac    " + tBar(tRanges.r0_50) + "\n" +
+      "50-100\u20ac  " + tBar(tRanges.r50_100) + "\n" +
+      "100-200\u20ac " + tBar(tRanges.r100_200) + "\n" +
+      "200-500\u20ac " + tBar(tRanges.r200_500) + "\n" +
+      "500\u20ac+    " + tBar(tRanges.r500plus) + "</code>" +
+      "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n\uD83D\uDCE6 <b>Total : " + tTotal + " commandes</b>";
+    await sendTelegram(tMsg, getMainButtons());
+    return;
+  }
+
+  // Commande /courbe
+  if (req.body && req.body.message && req.body.message.text && req.body.message.text.trim() === "/courbe") {
+    var cParis = getParisDate();
+    var cShops = getShops();
+    var cAmazon = getAmazonAccounts();
+    var cDays = [];
+    for (var cd = 6; cd >= 0; cd--) {
+      var cDayDate = new Date(cParis.getFullYear(), cParis.getMonth(), cParis.getDate() - cd);
+      var cDayEnd = new Date(cParis.getFullYear(), cParis.getMonth(), cParis.getDate() - cd + 1);
+      var cDayRev = 0; var cDayOrd = 0;
+      for (var ci = 0; ci < cShops.length; ci++) {
+        var cOrders = await getShopifyOrders(cShops[ci], cDayDate.toISOString());
+        for (var cj = 0; cj < cOrders.length; cj++) {
+          var cCreated = new Date(cOrders[cj].created_at);
+          if (cCreated >= cDayDate && cCreated < cDayEnd) {
+            cDayRev += parseFloat(cOrders[cj].total_price || 0);
+            cDayOrd += 1;
+          }
+        }
+      }
+      for (var ck = 0; ck < cAmazon.length; ck++) {
+        var cAmz = await getAmazonOrdersCached(cAmazon[ck], cDayDate.toISOString(), "courbe_" + cd, 10 * 60 * 1000);
+        for (var cl = 0; cl < cAmz.length; cl++) {
+          var cAmzDate = new Date(cAmz[cl].PurchaseDate);
+          if (cAmzDate >= cDayDate && cAmzDate < cDayEnd) {
+            cDayRev += (cAmz[cl].OrderTotal && cAmz[cl].OrderTotal.Amount) ? parseFloat(cAmz[cl].OrderTotal.Amount) : 0;
+            cDayOrd += 1;
+          }
+        }
+      }
+      cDays.push({ date: cDayDate, revenue: cDayRev, orders: cDayOrd });
+    }
+    var cMax = 0; var cTotalRev = 0; var cTotalOrd = 0;
+    for (var cm = 0; cm < cDays.length; cm++) { if (cDays[cm].revenue > cMax) cMax = cDays[cm].revenue; cTotalRev += cDays[cm].revenue; cTotalOrd += cDays[cm].orders; }
+    var cLines = [];
+    for (var cn = 0; cn < cDays.length; cn++) {
+      var cBarLen = cMax > 0 ? Math.round((cDays[cn].revenue / cMax) * 8) : 0;
+      var cBar = "";
+      for (var cb = 0; cb < cBarLen; cb++) cBar += "\u2588";
+      for (var ce = cBarLen; ce < 8; ce++) cBar += "\u2591";
+      var cDayName = JOUR_NAMES[cDays[cn].date.getDay()].substring(0, 3);
+      var cDateStr = String(cDays[cn].date.getDate()).padStart(2, "0") + "/" + String(cDays[cn].date.getMonth() + 1).padStart(2, "0");
+      cLines.push(cDayName + " " + cDateStr + " " + cBar + " " + formatMoney(cDays[cn].revenue) + "\u20ac");
+    }
+    var cAvg = cTotalRev > 0 ? Math.round(cTotalRev / 7) : 0;
+    var cBestIdx = 0;
+    for (var co = 1; co < cDays.length; co++) { if (cDays[co].revenue > cDays[cBestIdx].revenue) cBestIdx = co; }
+    var cBestName = JOUR_NAMES[cDays[cBestIdx].date.getDay()];
+    var cMsg = "\uD83D\uDCC8 <b>Courbe des 7 derniers jours</b>\n\n<code>" + cLines.join("\n") + "</code>" +
+      "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n\uD83D\uDCB0 <b>Total : " + formatMoney(cTotalRev) + " \u20ac (" + cTotalOrd + " cmd)</b>\n\uD83D\uDCCA <b>Moyenne : " + formatMoney(cAvg) + " \u20ac/jour</b>\n\uD83C\uDFC6 <b>Meilleur : " + cBestName + " (" + formatMoney(cDays[cBestIdx].revenue) + " \u20ac)</b>";
+    await sendTelegram(cMsg, getMainButtons());
+    return;
+  }
+
   // Commande /help
   if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/help") === 0) {
-    var helpMsg = "\uD83D\uDCCB <b>Commandes disponibles</b>\n\n\uD83D\uDCCA /stats - Recap du jour + boutons\n\uD83C\uDFC6 /top - Classement boutiques (jour)\n\uD83C\uDFC6 /topmois - Classement boutiques (mois)\n\uD83C\uDFC6 /topproduits - Top produits\n\uD83D\uDCC8 /compare - Aujourd'hui vs hier vs semaine derniere\n\uD83D\uDCC6 /mois - Ce mois vs mois dernier\n\uD83D\uDCC5 /semaine - CA par jour de la semaine\n\uD83D\uDCE3 /ads - Depenses Ads / ROAS\n\u2753 /help - Cette aide\n\n\u23F0 <b>Automatique :</b>\n\u2600\uFE0F 8h - Rapport du matin + ROAS\n\uD83C\uDF19 20h - Rapport du soir + ROAS\n\uD83D\uDCC5 Lundi 8h - Rapport hebdo\n\uD83C\uDFAF Alerte objectif atteint + streak\n\uD83D\uDD25 Alerte grosse commande (+1 000 \u20ac)\n\uD83C\uDF89 Milestones (commandes & CA)\n\uD83D\uDD2E Prediction fin de journee";
+    var helpMsg = "\uD83D\uDCCB <b>Commandes disponibles</b>\n\n\uD83D\uDCCA /stats - Recap du jour + boutons\n\uD83C\uDFC6 /top - Classement boutiques (jour)\n\uD83C\uDFC6 /topmois - Classement boutiques (mois)\n\uD83C\uDFC6 /topproduits - Top produits\n\uD83D\uDCC8 /compare - Aujourd'hui vs hier vs semaine derniere\n\uD83D\uDCC6 /mois - Ce mois vs mois dernier\n\uD83D\uDCC5 /semaine - CA par jour de la semaine\n\uD83D\uDCE3 /ads - Depenses Ads / ROAS\n\u23F0 /heures - Ventes par heure\n\uD83C\uDFAF /objectifmois - Objectif mensuel\n\uD83C\uDFC6 /records - Records de vente\n\uD83D\uDCB0 /tranches - Repartition par prix\n\uD83D\uDCC8 /courbe - Courbe des 7 derniers jours\n\u2753 /help - Cette aide\n\n\u23F0 <b>Automatique :</b>\n\u2600\uFE0F 8h - Rapport du matin + ROAS\n\uD83C\uDF19 20h - Rapport du soir + ROAS\n\uD83D\uDCC5 Lundi 8h - Rapport hebdo\n\uD83C\uDFAF Alerte objectif atteint + streak\n\uD83D\uDD25 Alerte grosse commande (+1 000 \u20ac)\n\uD83C\uDF89 Milestones (commandes & CA)\n\uD83D\uDD2E Prediction fin de journee\n\uD83C\uDFC6 Alerte nouveau record";
     await sendTelegram(helpMsg, null);
     return;
   }
