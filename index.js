@@ -93,21 +93,33 @@ var ORDER_MILESTONES = [10, 25, 50, 75, 100, 150, 200, 250, 300, 400, 500, 750, 
 var REVENUE_MILESTONES = [1000, 2500, 5000, 7500, 10000, 15000, 20000, 25000, 30000, 40000, 50000, 75000, 100000];
 
 async function checkMilestones(stats) {
+  var highestOrder = 0;
   for (var i = 0; i < ORDER_MILESTONES.length; i++) {
     var m = ORDER_MILESTONES[i];
     if (stats._totalOrders >= m && !milestonesOrdersSent[m]) {
-      milestonesOrdersSent[m] = true;
-      var msg = "\uD83C\uDF89 <b>MILESTONE !</b>\n\n\uD83D\uDCE6 <b>" + m + "eme commande du jour !</b>\n\uD83D\uDCB0 CA : " + formatMoney(stats._totalRevenue) + " \u20ac\n\nOn continue ! \uD83D\uDE80";
-      await sendTelegram(msg, null);
+      highestOrder = m;
     }
   }
+  if (highestOrder > 0) {
+    for (var i2 = 0; i2 < ORDER_MILESTONES.length; i2++) {
+      if (ORDER_MILESTONES[i2] <= highestOrder) { milestonesOrdersSent[ORDER_MILESTONES[i2]] = true; }
+    }
+    var msg = "\uD83C\uDF89 <b>MILESTONE !</b>\n\n\uD83D\uDCE6 <b>" + highestOrder + "eme commande du jour !</b>\n\uD83D\uDCB0 CA : " + formatMoney(stats._totalRevenue) + " \u20ac\n\nOn continue ! \uD83D\uDE80";
+    await sendTelegram(msg, null);
+  }
+  var highestRevenue = 0;
   for (var j = 0; j < REVENUE_MILESTONES.length; j++) {
     var r = REVENUE_MILESTONES[j];
     if (stats._totalRevenue >= r && !milestonesRevenueSent[r]) {
-      milestonesRevenueSent[r] = true;
-      var rMsg = "\uD83C\uDF89 <b>MILESTONE !</b>\n\n\uD83D\uDCB0 <b>" + formatMoney(r) + " \u20ac atteints aujourd'hui !</b>\n\uD83D\uDCE6 " + stats._totalOrders + " commandes\n\nEnorme ! \uD83D\uDCAA";
-      await sendTelegram(rMsg, null);
+      highestRevenue = r;
     }
+  }
+  if (highestRevenue > 0) {
+    for (var j2 = 0; j2 < REVENUE_MILESTONES.length; j2++) {
+      if (REVENUE_MILESTONES[j2] <= highestRevenue) { milestonesRevenueSent[REVENUE_MILESTONES[j2]] = true; }
+    }
+    var rMsg = "\uD83C\uDF89 <b>MILESTONE !</b>\n\n\uD83D\uDCB0 <b>" + formatMoney(highestRevenue) + " \u20ac atteints aujourd'hui !</b>\n\uD83D\uDCE6 " + stats._totalOrders + " commandes\n\nEnorme ! \uD83D\uDCAA";
+    await sendTelegram(rMsg, null);
   }
 }
 
@@ -618,6 +630,25 @@ async function getStatsForAll(period) {
   return { revenue: revenue, orders: orderCount };
 }
 
+// Stats Shopify only (for Google Ads ROAS)
+async function getStatsForAllShopify(period) {
+  var dates = getPeriodDates(period);
+  var shops = getShops();
+  var revenue = 0;
+  var orderCount = 0;
+  for (var i = 0; i < shops.length; i++) {
+    var orders = await getShopifyOrders(shops[i], dates.start);
+    for (var j = 0; j < orders.length; j++) {
+      var created = new Date(orders[j].created_at);
+      if (created <= new Date(dates.end)) {
+        revenue += parseFloat(orders[j].total_price || 0);
+        orderCount += 1;
+      }
+    }
+  }
+  return { revenue: revenue, orders: orderCount };
+}
+
 // Same day last week
 async function getSameDayLastWeekStats() {
   var paris = getParisDate();
@@ -782,14 +813,15 @@ async function buildRecapMessage() {
     predLine = "\n\uD83D\uDD2E <b>Prediction : " + formatMoney(pred.revenue) + " \u20ac (" + pred.orders + " cmd)</b>";
   }
 
-  // Ads total du jour
+  // Ads total du jour (ROAS = Shopify only pour Google Ads)
   var adsLine = "";
   var adsRows = await getAdsRows();
   var todayStr = getTodayKey();
   var todaySpend = filterAds(adsRows, todayStr, null, null);
   if (todaySpend > 0) {
-    var roas = stats._totalRevenue > 0 ? (stats._totalRevenue / todaySpend).toFixed(1) : "0";
-    adsLine = "\n\n\uD83D\uDCE3 <b>Ads du jour</b>\n\uD83D\uDCB8 " + formatMoney(todaySpend) + " \u20ac \u00b7 ROAS global : " + roas + "x";
+    var shopifyStats = await getStatsForAllShopify("d");
+    var roas = shopifyStats.revenue > 0 ? (shopifyStats.revenue / todaySpend).toFixed(1) : "0";
+    adsLine = "\n\n\uD83D\uDCE3 <b>Ads du jour</b>\n\uD83D\uDCB8 " + formatMoney(todaySpend) + " \u20ac \u00b7 ROAS : " + roas + "x (Shopify)";
   }
 
   return "\n\n\uD83D\uDCCA <b>Recap du jour :</b>\n\n" + top +
@@ -864,6 +896,13 @@ async function checkNewOrders() {
   if (firstRun) {
     firstRun = false;
     var stats = resetDailyStatsIfNeeded();
+    // Marquer les milestones existants comme deja envoyes
+    for (var mi = 0; mi < ORDER_MILESTONES.length; mi++) {
+      if (stats._totalOrders >= ORDER_MILESTONES[mi]) { milestonesOrdersSent[ORDER_MILESTONES[mi]] = true; }
+    }
+    for (var mj = 0; mj < REVENUE_MILESTONES.length; mj++) {
+      if (stats._totalRevenue >= REVENUE_MILESTONES[mj]) { milestonesRevenueSent[REVENUE_MILESTONES[mj]] = true; }
+    }
     console.log("Premier scan: " + stats._totalOrders + " commandes (" + formatMoney(stats._totalRevenue) + " EUR)");
   }
 }
@@ -917,8 +956,9 @@ setInterval(async function () {
       var yAdsTotal = filterAds(adsRows, yDateStr, null, null);
       var yAdsLine = "";
       if (yAdsTotal > 0) {
-        var yRoas = yesterdayStats.revenue > 0 ? (yesterdayStats.revenue / yAdsTotal).toFixed(1) : "0";
-        yAdsLine = "\n\n\uD83D\uDCE3 <b>Ads hier</b>\n\uD83D\uDCB8 " + formatMoney(yAdsTotal) + " \u20ac \u00b7 ROAS : " + yRoas + "x";
+        var yShopifyStats = await getStatsForAllShopify("h");
+        var yRoas = yShopifyStats.revenue > 0 ? (yShopifyStats.revenue / yAdsTotal).toFixed(1) : "0";
+        yAdsLine = "\n\n\uD83D\uDCE3 <b>Ads hier</b>\n\uD83D\uDCB8 " + formatMoney(yAdsTotal) + " \u20ac \u00b7 ROAS : " + yRoas + "x (Shopify)";
       }
       var morningMsg = "\u2600\uFE0F <b>Bonjour ! Recap d'hier :</b>\n\n\uD83D\uDCB0 CA : " + formatMoney(yesterdayStats.revenue) + " \u20ac\n\uD83D\uDCE6 Commandes : " + yesterdayStats.orders + "\n\uD83D\uDED2 Panier moyen : " + formatMoney(yAvg) + " \u20ac" + yAdsLine + objectifLine + "\n\nBonne journee ! \uD83D\uDCAA";
       await sendTelegram(morningMsg, getMainButtons());
@@ -1256,12 +1296,12 @@ app.post("/webhook", async function (req, res) {
         yTotal += pYSpend;
         platLines.push(getPlatformLabel(allPlatforms[ap]) + "\n     \uD83D\uDCC5 Aujourd'hui : " + formatMoney(pTodaySpend) + " \u20ac\n     \u23EA Hier : " + formatMoney(pYSpend) + " \u20ac");
       }
-      var totalStats = await getStatsForAll("d");
-      var totalStatsY = await getStatsForAll("h");
+      var totalStats = await getStatsForAllShopify("d");
+      var totalStatsY = await getStatsForAllShopify("h");
       var roasToday = todayTotal > 0 ? (totalStats.revenue / todayTotal).toFixed(1) : "N/A";
       var roasY = yTotal > 0 ? (totalStatsY.revenue / yTotal).toFixed(1) : "N/A";
       var allMsg = "\uD83D\uDCE3 <b>Ads - Toutes plateformes</b>\n\n" + platLines.join("\n\n") +
-        "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n\uD83D\uDCB8 <b>Total aujourd'hui : " + formatMoney(todayTotal) + " \u20ac</b>\n\uD83D\uDCCA <b>ROAS global : " + roasToday + "x</b>\n\n\uD83D\uDCB8 <b>Total hier : " + formatMoney(yTotal) + " \u20ac</b>\n\uD83D\uDCCA <b>ROAS hier : " + roasY + "x</b>";
+        "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n\uD83D\uDCB8 <b>Total aujourd'hui : " + formatMoney(todayTotal) + " \u20ac</b>\n\uD83D\uDCCA <b>ROAS : " + roasToday + "x (Shopify)</b>\n\n\uD83D\uDCB8 <b>Total hier : " + formatMoney(yTotal) + " \u20ac</b>\n\uD83D\uDCCA <b>ROAS hier : " + roasY + "x (Shopify)</b>";
       var allAdsReturn = [
         [{ text: "\u2B05\uFE0F Retour", callback_data: "ads_menu" }]
       ];
@@ -1299,11 +1339,11 @@ app.post("/webhook", async function (req, res) {
     var tSpend = filterAds(adsRows4, todayStr4, platFilter, shopFilter);
     var ySpend = filterAds(adsRows4, yDateStr4, platFilter, shopFilter);
 
-    // Get shop CA for ROAS
+    // Get shop CA for ROAS (Shopify only for Google Ads)
     var tShopCA = 0; var yShopCA = 0;
     if (adsShop === "ALL") {
-      var allT = await getStatsForAll("d");
-      var allY = await getStatsForAll("h");
+      var allT = await getStatsForAllShopify("d");
+      var allY = await getStatsForAllShopify("h");
       tShopCA = allT.revenue; yShopCA = allY.revenue;
     } else {
       var shopT = await getStatsForShop(adsShop, "d", null);
@@ -1314,8 +1354,8 @@ app.post("/webhook", async function (req, res) {
     var yRoas = ySpend > 0 ? (yShopCA / ySpend).toFixed(1) : "N/A";
     var shopLabel = adsShop === "ALL" ? "Toutes boutiques" : adsShop;
     var adsDetailMsg = getPlatformLabel(adsPlat) + " - <b>" + shopLabel + "</b>\n\n" +
-      "\uD83D\uDCC5 <b>Aujourd'hui</b>\n     \uD83D\uDCB8 Depense : " + formatMoney(tSpend) + " \u20ac\n     \uD83D\uDCB0 CA : " + formatMoney(tShopCA) + " \u20ac\n     \uD83D\uDCCA ROAS : " + tRoas + "x\n\n" +
-      "\u23EA <b>Hier</b>\n     \uD83D\uDCB8 Depense : " + formatMoney(ySpend) + " \u20ac\n     \uD83D\uDCB0 CA : " + formatMoney(yShopCA) + " \u20ac\n     \uD83D\uDCCA ROAS : " + yRoas + "x";
+      "\uD83D\uDCC5 <b>Aujourd'hui</b>\n     \uD83D\uDCB8 Depense : " + formatMoney(tSpend) + " \u20ac\n     \uD83D\uDCB0 CA Shopify : " + formatMoney(tShopCA) + " \u20ac\n     \uD83D\uDCCA ROAS : " + tRoas + "x\n\n" +
+      "\u23EA <b>Hier</b>\n     \uD83D\uDCB8 Depense : " + formatMoney(ySpend) + " \u20ac\n     \uD83D\uDCB0 CA Shopify : " + formatMoney(yShopCA) + " \u20ac\n     \uD83D\uDCCA ROAS : " + yRoas + "x";
     var adsDetailButtons = [
       [{ text: "\u2B05\uFE0F Retour", callback_data: "adsp:" + adsPlat }],
       [{ text: "\u2B05\uFE0F Menu Ads", callback_data: "ads_menu" }]
