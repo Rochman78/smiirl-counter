@@ -191,6 +191,36 @@ function buildProgressBar(current, target) {
   return bar + " " + pct.toFixed(0) + "%";
 }
 
+var cachedSkuNames = {};
+var lastSkuNamesFetch = 0;
+
+async function getSkuNames() {
+  var now = Date.now();
+  if (now - lastSkuNamesFetch < 30 * 60 * 1000 && Object.keys(cachedSkuNames).length > 0) { return cachedSkuNames; }
+  var url = process.env.SKU_NAMES_SHEET_URL;
+  if (!url) return cachedSkuNames;
+  try {
+    var response = await fetch(url);
+    if (!response.ok) return cachedSkuNames;
+    var text = await response.text();
+    var lines = text.trim().split("\n");
+    var sep = lines[0].indexOf(";") >= 0 ? ";" : ",";
+    var map = {};
+    for (var i = 0; i < lines.length; i++) {
+      var parts = lines[i].split(sep);
+      var sku = (parts[0] || "").trim();
+      var name = (parts[1] || "").trim();
+      if (sku && name) { map[sku] = name; }
+    }
+    cachedSkuNames = map;
+    lastSkuNamesFetch = now;
+    return cachedSkuNames;
+  } catch (error) {
+    console.error("Erreur SKU names sheet: " + error.message);
+    return cachedSkuNames;
+  }
+}
+
 // ============================================================
 // TELEGRAM
 // ============================================================
@@ -1132,6 +1162,7 @@ app.post("/webhook", async function (req, res) {
     else if (tpPeriod === "a") { tpStart = new Date(paris5.getFullYear(), 0, 1); tpLabel = "cette annee"; }
     else { tpStart = new Date(2020, 0, 1); tpLabel = "tout"; }
     await editMessage(chatId, messageId, "\u23F3 <b>Chargement...</b>", null);
+    var skuNames = await getSkuNames();
     var tpShops = getShops();
     var tpMap = {};
     for (var tpi = 0; tpi < tpShops.length; tpi++) {
@@ -1140,7 +1171,7 @@ app.post("/webhook", async function (req, res) {
         var tpItems = tpOrders[tpj].line_items || [];
         for (var tpk = 0; tpk < tpItems.length; tpk++) {
           var tpSku = tpItems[tpk].sku || "no-sku";
-          var tpName = tpSku === "no-sku" ? "Sur-mesure" : (tpItems[tpk].title || "Inconnu");
+          var tpName = tpSku === "no-sku" ? "Sur-mesure" : (skuNames[tpSku] || tpItems[tpk].title || "Inconnu");
           var tpVariant = tpItems[tpk].variant_title || "";
           var tpQty = tpItems[tpk].quantity || 1;
           var tpRev = parseFloat(tpItems[tpk].price || 0) * tpQty;
@@ -1155,7 +1186,7 @@ app.post("/webhook", async function (req, res) {
     for (var tpl = 0; tpl < tpKeys.length; tpl++) {
       tpList.push({ sku: tpKeys[tpl], name: tpMap[tpKeys[tpl]].name, variant: tpMap[tpKeys[tpl]].variant, qty: tpMap[tpKeys[tpl]].qty, revenue: tpMap[tpKeys[tpl]].revenue });
     }
-    tpList.sort(function(a, b) { return b.qty - a.qty; });
+    tpList.sort(function(a, b) { return b.revenue - a.revenue; });
     var tpN = Math.min(tpList.length, 10);
     var tpMedals = ["\uD83E\uDD47", "\uD83E\uDD48", "\uD83E\uDD49"];
     var tpLines = [];
