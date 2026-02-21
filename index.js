@@ -799,7 +799,8 @@ function getMainButtons() {
     ],
     [
       { text: "\uD83C\uDFAF Obj. mois", callback_data: "btn_objectifmois" },
-      { text: "\uD83C\uDFC6 Records", callback_data: "btn_records" }
+      { text: "\uD83C\uDFC6 Records", callback_data: "btn_records" },
+      { text: "\uD83E\uDD21 Rire", callback_data: "btn_rire" }
     ]
   ];
 }
@@ -1639,6 +1640,13 @@ app.post("/webhook", async function (req, res) {
     rMsg2 += "\uD83D\uDCE6 <b>Record commandes/jour</b>\n     " + records.mostOrdersDay + " commandes\n     \uD83D\uDCC5 " + (records.mostOrdersDate || "N/A");
     rMsg2 += "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n\uD83D\uDCC5 <b>Aujourd'hui</b>\n     \uD83D\uDCB0 CA : " + formatMoney(rStats2._totalRevenue) + " \u20ac\n     \uD83D\uDCE6 Commandes : " + rStats2._totalOrders + "\n     \uD83D\uDC8E Plus grosse : " + formatMoney(rStats2._biggestOrder) + " \u20ac";
     await editMessage(chatId, messageId, rMsg2, getMainButtons());
+    return;
+  }
+
+  // Bouton Rire
+  if (data === "btn_rire") {
+    var rireMsg = "\uD83E\uDD21 " + getMotivation();
+    await editMessage(chatId, messageId, rireMsg, getMainButtons());
     return;
   }
 
