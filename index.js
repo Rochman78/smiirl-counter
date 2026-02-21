@@ -375,9 +375,9 @@ async function getAmzAdsAccessToken() {
 async function fetchAmzAdsSpendForProfile(accessToken, profile, dateStr) {
   var clientId = process.env.AMZ_ADS_CLIENT_ID;
   var adProducts = [
-    { name: "SPONSORED_PRODUCTS", reportType: "spCampaigns" },
-    { name: "SPONSORED_BRANDS", reportType: "sbCampaigns" },
-    { name: "SPONSORED_DISPLAY", reportType: "sdCampaigns" }
+    { name: "SPONSORED_PRODUCTS", reportType: "spCampaigns", spendCol: "spend" },
+    { name: "SPONSORED_BRANDS", reportType: "sbCampaigns", spendCol: "cost" },
+    { name: "SPONSORED_DISPLAY", reportType: "sdCampaigns", spendCol: "cost" }
   ];
   var zlib = require("zlib");
 
@@ -391,7 +391,7 @@ async function fetchAmzAdsSpendForProfile(accessToken, profile, dateStr) {
         configuration: {
           adProduct: adProduct.name,
           groupBy: ["campaign"],
-          columns: ["spend"],
+          columns: [adProduct.spendCol],
           reportTypeId: adProduct.reportType,
           timeUnit: "SUMMARY",
           format: "GZIP_JSON"
@@ -416,7 +416,7 @@ async function fetchAmzAdsSpendForProfile(accessToken, profile, dateStr) {
       if (!reportId) { console.log("  [" + profile.country + "] No reportId"); return 0; }
 
       var downloadUrl = null;
-      for (var p = 0; p < 6; p++) {
+      for (var p = 0; p < 10; p++) {
         await sleep(3000);
         var statusResp = await fetch(profile.endpoint + "/reporting/reports/" + reportId, {
           headers: {
@@ -442,7 +442,8 @@ async function fetchAmzAdsSpendForProfile(accessToken, profile, dateStr) {
       var rows = JSON.parse(jsonStr);
       var total = 0;
       for (var r = 0; r < rows.length; r++) {
-        if (rows[r].spend) total += parseFloat(rows[r].spend);
+        var val = rows[r].spend || rows[r].cost || 0;
+        if (val) total += parseFloat(val);
       }
       return total;
     } catch (e) { console.error("  [" + profile.country + "] " + adProduct.name + " error: " + e.message); return 0; }
