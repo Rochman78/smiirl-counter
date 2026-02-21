@@ -1171,8 +1171,9 @@ app.post("/webhook", async function (req, res) {
         var tpItems = tpOrders[tpj].line_items || [];
         for (var tpk = 0; tpk < tpItems.length; tpk++) {
           var tpSku = tpItems[tpk].sku || "no-sku";
-          var tpName = tpSku === "no-sku" ? "Sur-mesure" : (skuNames[tpSku] || tpItems[tpk].title || "Inconnu");
-          var tpVariant = tpItems[tpk].variant_title || "";
+          var tpSheetName = skuNames[tpSku];
+          var tpName = tpSku === "no-sku" ? "Sur-mesure" : (tpSheetName || tpItems[tpk].title || "Inconnu");
+          var tpVariant = tpSheetName ? "" : (tpItems[tpk].variant_title || "");
           var tpQty = tpItems[tpk].quantity || 1;
           var tpRev = parseFloat(tpItems[tpk].price || 0) * tpQty;
           if (!tpMap[tpSku]) { tpMap[tpSku] = { name: tpName, variant: tpVariant, qty: 0, revenue: 0 }; }
@@ -1192,8 +1193,8 @@ app.post("/webhook", async function (req, res) {
     var tpLines = [];
     for (var tpm = 0; tpm < tpN; tpm++) {
       var tpMedal = tpm < 3 ? tpMedals[tpm] : (tpm + 1) + ".";
-      var tpDisplayName = tpList[tpm].name.substring(0, 35);
-      if (tpList[tpm].variant) { tpDisplayName += " (" + tpList[tpm].variant.substring(0, 15) + ")"; }
+      var tpDisplayName = tpList[tpm].name.substring(0, 50);
+      if (tpList[tpm].variant) { tpDisplayName += " (" + tpList[tpm].variant.substring(0, 20) + ")"; }
       tpLines.push(tpMedal + " <b>" + tpDisplayName + "</b>\n     \uD83D\uDCB0 " + formatMoney(tpList[tpm].revenue) + " \u20ac \u00b7 " + tpList[tpm].qty + " vendus");
     }
     var tpMsg = "\uD83C\uDFC6 <b>Top 10 produits (" + tpLabel + ")</b>\n<i>(Shopify - par SKU)</i>\n\n";
