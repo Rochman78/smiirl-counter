@@ -374,22 +374,25 @@ async function getAmzAdsAccessToken() {
 
 async function fetchAmzAdsSpendForProfile(accessToken, profile, dateStr) {
   var clientId = process.env.AMZ_ADS_CLIENT_ID;
-  var adProducts = ["SPONSORED_PRODUCTS", "SPONSORED_BRANDS", "SPONSORED_DISPLAY"];
-  var reportTypeIds = { "SPONSORED_PRODUCTS": "spCampaigns", "SPONSORED_BRANDS": "sbCampaigns", "SPONSORED_DISPLAY": "sdCampaigns" };
-  var totalSpend = 0;
+  var adProducts = [
+    { name: "SPONSORED_PRODUCTS", reportType: "spCampaigns" },
+    { name: "SPONSORED_BRANDS", reportType: "sbCampaigns" },
+    { name: "SPONSORED_DISPLAY", reportType: "sdCampaigns" }
+  ];
   var zlib = require("zlib");
 
-  for (var a = 0; a < adProducts.length; a++) {
+  // Fetch all 3 ad types in parallel
+  var spendPromises = adProducts.map(async function(adProduct) {
     try {
       var payload = {
-        name: adProducts[a] + " spend",
+        name: adProduct.name + " spend",
         startDate: dateStr,
         endDate: dateStr,
         configuration: {
-          adProduct: adProducts[a],
+          adProduct: adProduct.name,
           groupBy: ["campaign"],
           columns: ["spend"],
-          reportTypeId: reportTypeIds[adProducts[a]],
+          reportTypeId: adProduct.reportType,
           timeUnit: "SUMMARY",
           format: "GZIP_JSON"
         }
@@ -404,14 +407,14 @@ async function fetchAmzAdsSpendForProfile(accessToken, profile, dateStr) {
         },
         body: JSON.stringify(payload)
       });
-      if (!createResp.ok) continue;
+      if (!createResp.ok) return 0;
       var createData = await createResp.json();
       var reportId = createData.reportId;
-      if (!reportId) continue;
+      if (!reportId) return 0;
 
       var downloadUrl = null;
       for (var p = 0; p < 6; p++) {
-        await sleep(5000);
+        await sleep(3000);
         var statusResp = await fetch(profile.endpoint + "/reporting/reports/" + reportId, {
           headers: {
             "Authorization": "Bearer " + accessToken,
@@ -424,18 +427,24 @@ async function fetchAmzAdsSpendForProfile(accessToken, profile, dateStr) {
         if (statusData.status === "COMPLETED") { downloadUrl = statusData.url; break; }
         if (statusData.status === "FAILURE") break;
       }
-      if (!downloadUrl) continue;
+      if (!downloadUrl) return 0;
 
       var dlResp = await fetch(downloadUrl);
-      if (!dlResp.ok) continue;
+      if (!dlResp.ok) return 0;
       var buffer = await dlResp.arrayBuffer();
       var decompressed = zlib.gunzipSync(Buffer.from(buffer));
       var rows = JSON.parse(decompressed.toString());
+      var total = 0;
       for (var r = 0; r < rows.length; r++) {
-        if (rows[r].spend) totalSpend += parseFloat(rows[r].spend);
+        if (rows[r].spend) total += parseFloat(rows[r].spend);
       }
-    } catch (e) { console.error("AMZ Ads " + adProducts[a] + " " + profile.country + ": " + e.message); }
-  }
+      return total;
+    } catch (e) { return 0; }
+  });
+
+  var spends = await Promise.all(spendPromises);
+  var totalSpend = 0;
+  for (var s = 0; s < spends.length; s++) { totalSpend += spends[s]; }
   return Math.round(totalSpend * 100) / 100;
 }
 
@@ -450,25 +459,31 @@ async function fetchAllAmzAdsSpend() {
   yesterday.setDate(yesterday.getDate() - 1);
   var dateStr = getParisDateStr(yesterday);
   var today = getTodayKey();
-  var results = [];
 
-  for (var i = 0; i < AMZ_ADS_PROFILES.length; i++) {
-    var profile = AMZ_ADS_PROFILES[i];
+  // Fetch ALL countries in parallel
+  var promises = AMZ_ADS_PROFILES.map(async function(profile) {
+    var entries = [];
     try {
       var spend = await fetchAmzAdsSpendForProfile(accessToken, profile, dateStr);
       if (spend > 0) {
-        results.push({ date: dateStr, platform: "amazon", shop: profile.country, spend: spend });
+        entries.push({ date: dateStr, platform: "amazon", shop: profile.country, spend: spend });
         console.log("AMZ Ads " + profile.country + " (" + dateStr + "): " + spend);
       }
       var spendToday = await fetchAmzAdsSpendForProfile(accessToken, profile, today);
       if (spendToday > 0) {
-        results.push({ date: today, platform: "amazon", shop: profile.country, spend: spendToday });
+        entries.push({ date: today, platform: "amazon", shop: profile.country, spend: spendToday });
         console.log("AMZ Ads " + profile.country + " (" + today + "): " + spendToday);
       }
-      // Update cache after each country so data is available immediately
-      cachedAmzAdsSpend = results.slice();
-      lastAmzAdsFetch = Date.now();
     } catch (e) { console.error("AMZ Ads " + profile.country + " error: " + e.message); }
+    return entries;
+  });
+
+  var allResults = await Promise.all(promises);
+  var results = [];
+  for (var i = 0; i < allResults.length; i++) {
+    for (var j = 0; j < allResults[i].length; j++) {
+      results.push(allResults[i][j]);
+    }
   }
 
   cachedAmzAdsSpend = results;
@@ -772,6 +787,9 @@ function filterOrdersByMarketplace(orders, marketplaceId) {
 // ============================================================
 
 function formatMoney(amount) {
+  if (amount < 10 && amount > 0) {
+    return amount.toFixed(2).replace(".", ",");
+  }
   return Math.round(amount).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
 
