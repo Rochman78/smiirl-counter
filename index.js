@@ -397,6 +397,7 @@ async function fetchAmzAdsSpendForProfile(accessToken, profile, dateStr) {
           format: "GZIP_JSON"
         }
       };
+      console.log("  [" + profile.country + "] Creating " + adProduct.name + " report for " + dateStr);
       var createResp = await fetch(profile.endpoint + "/reporting/reports", {
         method: "POST",
         headers: {
@@ -407,10 +408,12 @@ async function fetchAmzAdsSpendForProfile(accessToken, profile, dateStr) {
         },
         body: JSON.stringify(payload)
       });
+      var createText = await createResp.text();
+      console.log("  [" + profile.country + "] " + adProduct.name + " create response (" + createResp.status + "): " + createText.substring(0, 200));
       if (!createResp.ok) return 0;
-      var createData = await createResp.json();
+      var createData = JSON.parse(createText);
       var reportId = createData.reportId;
-      if (!reportId) return 0;
+      if (!reportId) { console.log("  [" + profile.country + "] No reportId"); return 0; }
 
       var downloadUrl = null;
       for (var p = 0; p < 6; p++) {
@@ -422,24 +425,27 @@ async function fetchAmzAdsSpendForProfile(accessToken, profile, dateStr) {
             "Amazon-Advertising-API-Scope": profile.profileId
           }
         });
-        if (!statusResp.ok) break;
+        if (!statusResp.ok) { console.log("  [" + profile.country + "] Status check failed: " + statusResp.status); break; }
         var statusData = await statusResp.json();
+        console.log("  [" + profile.country + "] " + adProduct.name + " status: " + statusData.status);
         if (statusData.status === "COMPLETED") { downloadUrl = statusData.url; break; }
-        if (statusData.status === "FAILURE") break;
+        if (statusData.status === "FAILURE") { console.log("  [" + profile.country + "] Report FAILED: " + JSON.stringify(statusData).substring(0, 200)); break; }
       }
-      if (!downloadUrl) return 0;
+      if (!downloadUrl) { console.log("  [" + profile.country + "] " + adProduct.name + " no download URL"); return 0; }
 
       var dlResp = await fetch(downloadUrl);
       if (!dlResp.ok) return 0;
       var buffer = await dlResp.arrayBuffer();
       var decompressed = zlib.gunzipSync(Buffer.from(buffer));
-      var rows = JSON.parse(decompressed.toString());
+      var jsonStr = decompressed.toString();
+      console.log("  [" + profile.country + "] " + adProduct.name + " data: " + jsonStr.substring(0, 200));
+      var rows = JSON.parse(jsonStr);
       var total = 0;
       for (var r = 0; r < rows.length; r++) {
         if (rows[r].spend) total += parseFloat(rows[r].spend);
       }
       return total;
-    } catch (e) { return 0; }
+    } catch (e) { console.error("  [" + profile.country + "] " + adProduct.name + " error: " + e.message); return 0; }
   });
 
   var spends = await Promise.all(spendPromises);
