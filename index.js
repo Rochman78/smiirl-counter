@@ -1235,7 +1235,7 @@ setInterval(checkNewOrders, 60 * 1000);
 
 // Fetch Amazon Ads spend at startup and then every 6 hours
 setTimeout(function() { fetchAllAmzAdsSpend(); }, 30000); // 30s after boot
-setInterval(function() { fetchAllAmzAdsSpend(); }, 6 * 60 * 60 * 1000); // every 6h
+setInterval(function() { fetchAllAmzAdsSpend(); }, 3 * 60 * 60 * 1000); // every 3h
 
 // ============================================================
 // RAPPORTS AUTOMATIQUES
