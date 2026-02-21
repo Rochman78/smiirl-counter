@@ -649,6 +649,17 @@ async function getStatsForAllShopify(period) {
   return { revenue: revenue, orders: orderCount };
 }
 
+// Stats by ads platform (google=shopify, amazon=amazon, other=all)
+async function getStatsByAdsPlatform(platform, period) {
+  if (platform === "google") {
+    return await getStatsForAllShopify(period);
+  }
+  if (platform === "amazon") {
+    return await getStatsForShop("ALL_AMAZON", period, null);
+  }
+  return await getStatsForAll(period);
+}
+
 // Same day last week
 async function getSameDayLastWeekStats() {
   var paris = getParisDate();
@@ -813,15 +824,14 @@ async function buildRecapMessage() {
     predLine = "\n\uD83D\uDD2E <b>Prediction : " + formatMoney(pred.revenue) + " \u20ac (" + pred.orders + " cmd)</b>";
   }
 
-  // Ads total du jour (ROAS = Shopify only pour Google Ads)
+  // Ads total du jour (ROAS global = CA total / depense totale)
   var adsLine = "";
   var adsRows = await getAdsRows();
   var todayStr = getTodayKey();
   var todaySpend = filterAds(adsRows, todayStr, null, null);
   if (todaySpend > 0) {
-    var shopifyStats = await getStatsForAllShopify("d");
-    var roas = shopifyStats.revenue > 0 ? (shopifyStats.revenue / todaySpend).toFixed(1) : "0";
-    adsLine = "\n\n\uD83D\uDCE3 <b>Ads du jour</b>\n\uD83D\uDCB8 " + formatMoney(todaySpend) + " \u20ac \u00b7 ROAS : " + roas + "x (Shopify)";
+    var roas = stats._totalRevenue > 0 ? (stats._totalRevenue / todaySpend).toFixed(1) : "0";
+    adsLine = "\n\n\uD83D\uDCE3 <b>Ads du jour</b>\n\uD83D\uDCB8 " + formatMoney(todaySpend) + " \u20ac \u00b7 ROAS : " + roas + "x";
   }
 
   return "\n\n\uD83D\uDCCA <b>Recap du jour :</b>\n\n" + top +
@@ -956,9 +966,8 @@ setInterval(async function () {
       var yAdsTotal = filterAds(adsRows, yDateStr, null, null);
       var yAdsLine = "";
       if (yAdsTotal > 0) {
-        var yShopifyStats = await getStatsForAllShopify("h");
-        var yRoas = yShopifyStats.revenue > 0 ? (yShopifyStats.revenue / yAdsTotal).toFixed(1) : "0";
-        yAdsLine = "\n\n\uD83D\uDCE3 <b>Ads hier</b>\n\uD83D\uDCB8 " + formatMoney(yAdsTotal) + " \u20ac \u00b7 ROAS : " + yRoas + "x (Shopify)";
+        var yRoas = yesterdayStats.revenue > 0 ? (yesterdayStats.revenue / yAdsTotal).toFixed(1) : "0";
+        yAdsLine = "\n\n\uD83D\uDCE3 <b>Ads hier</b>\n\uD83D\uDCB8 " + formatMoney(yAdsTotal) + " \u20ac \u00b7 ROAS : " + yRoas + "x";
       }
       var morningMsg = "\u2600\uFE0F <b>Bonjour ! Recap d'hier :</b>\n\n\uD83D\uDCB0 CA : " + formatMoney(yesterdayStats.revenue) + " \u20ac\n\uD83D\uDCE6 Commandes : " + yesterdayStats.orders + "\n\uD83D\uDED2 Panier moyen : " + formatMoney(yAvg) + " \u20ac" + yAdsLine + objectifLine + "\n\nBonne journee ! \uD83D\uDCAA";
       await sendTelegram(morningMsg, getMainButtons());
@@ -1292,16 +1301,20 @@ app.post("/webhook", async function (req, res) {
       for (var ap = 0; ap < allPlatforms.length; ap++) {
         var pTodaySpend = filterAds(adsRows3, todayStr3, allPlatforms[ap], null);
         var pYSpend = filterAds(adsRows3, yDateStr3, allPlatforms[ap], null);
+        var pTodayStats = await getStatsByAdsPlatform(allPlatforms[ap], "d");
+        var pYStats = await getStatsByAdsPlatform(allPlatforms[ap], "h");
+        var pTodayRoas = pTodaySpend > 0 ? (pTodayStats.revenue / pTodaySpend).toFixed(1) : "N/A";
+        var pYRoas = pYSpend > 0 ? (pYStats.revenue / pYSpend).toFixed(1) : "N/A";
         todayTotal += pTodaySpend;
         yTotal += pYSpend;
-        platLines.push(getPlatformLabel(allPlatforms[ap]) + "\n     \uD83D\uDCC5 Aujourd'hui : " + formatMoney(pTodaySpend) + " \u20ac\n     \u23EA Hier : " + formatMoney(pYSpend) + " \u20ac");
+        platLines.push(getPlatformLabel(allPlatforms[ap]) + "\n     \uD83D\uDCC5 " + formatMoney(pTodaySpend) + " \u20ac \u00b7 ROAS " + pTodayRoas + "x\n     \u23EA " + formatMoney(pYSpend) + " \u20ac \u00b7 ROAS " + pYRoas + "x");
       }
-      var totalStats = await getStatsForAllShopify("d");
-      var totalStatsY = await getStatsForAllShopify("h");
-      var roasToday = todayTotal > 0 ? (totalStats.revenue / todayTotal).toFixed(1) : "N/A";
+      var totalStatsT = await getStatsForAll("d");
+      var totalStatsY = await getStatsForAll("h");
+      var roasToday = todayTotal > 0 ? (totalStatsT.revenue / todayTotal).toFixed(1) : "N/A";
       var roasY = yTotal > 0 ? (totalStatsY.revenue / yTotal).toFixed(1) : "N/A";
       var allMsg = "\uD83D\uDCE3 <b>Ads - Toutes plateformes</b>\n\n" + platLines.join("\n\n") +
-        "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n\uD83D\uDCB8 <b>Total aujourd'hui : " + formatMoney(todayTotal) + " \u20ac</b>\n\uD83D\uDCCA <b>ROAS : " + roasToday + "x (Shopify)</b>\n\n\uD83D\uDCB8 <b>Total hier : " + formatMoney(yTotal) + " \u20ac</b>\n\uD83D\uDCCA <b>ROAS hier : " + roasY + "x (Shopify)</b>";
+        "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n\uD83D\uDCB8 <b>Total aujourd'hui : " + formatMoney(todayTotal) + " \u20ac</b>\n\uD83D\uDCCA <b>ROAS global : " + roasToday + "x</b>\n\n\uD83D\uDCB8 <b>Total hier : " + formatMoney(yTotal) + " \u20ac</b>\n\uD83D\uDCCA <b>ROAS hier : " + roasY + "x</b>";
       var allAdsReturn = [
         [{ text: "\u2B05\uFE0F Retour", callback_data: "ads_menu" }]
       ];
@@ -1339,11 +1352,11 @@ app.post("/webhook", async function (req, res) {
     var tSpend = filterAds(adsRows4, todayStr4, platFilter, shopFilter);
     var ySpend = filterAds(adsRows4, yDateStr4, platFilter, shopFilter);
 
-    // Get shop CA for ROAS (Shopify only for Google Ads)
+    // Get shop CA for ROAS (google=shopify, amazon=amazon)
     var tShopCA = 0; var yShopCA = 0;
     if (adsShop === "ALL") {
-      var allT = await getStatsForAllShopify("d");
-      var allY = await getStatsForAllShopify("h");
+      var allT = await getStatsByAdsPlatform(adsPlat, "d");
+      var allY = await getStatsByAdsPlatform(adsPlat, "h");
       tShopCA = allT.revenue; yShopCA = allY.revenue;
     } else {
       var shopT = await getStatsForShop(adsShop, "d", null);
@@ -1353,9 +1366,10 @@ app.post("/webhook", async function (req, res) {
     var tRoas = tSpend > 0 ? (tShopCA / tSpend).toFixed(1) : "N/A";
     var yRoas = ySpend > 0 ? (yShopCA / ySpend).toFixed(1) : "N/A";
     var shopLabel = adsShop === "ALL" ? "Toutes boutiques" : adsShop;
+    var caLabel = adsPlat === "google" ? "CA Shopify" : (adsPlat === "amazon" ? "CA Amazon" : "CA");
     var adsDetailMsg = getPlatformLabel(adsPlat) + " - <b>" + shopLabel + "</b>\n\n" +
-      "\uD83D\uDCC5 <b>Aujourd'hui</b>\n     \uD83D\uDCB8 Depense : " + formatMoney(tSpend) + " \u20ac\n     \uD83D\uDCB0 CA Shopify : " + formatMoney(tShopCA) + " \u20ac\n     \uD83D\uDCCA ROAS : " + tRoas + "x\n\n" +
-      "\u23EA <b>Hier</b>\n     \uD83D\uDCB8 Depense : " + formatMoney(ySpend) + " \u20ac\n     \uD83D\uDCB0 CA Shopify : " + formatMoney(yShopCA) + " \u20ac\n     \uD83D\uDCCA ROAS : " + yRoas + "x";
+      "\uD83D\uDCC5 <b>Aujourd'hui</b>\n     \uD83D\uDCB8 Depense : " + formatMoney(tSpend) + " \u20ac\n     \uD83D\uDCB0 " + caLabel + " : " + formatMoney(tShopCA) + " \u20ac\n     \uD83D\uDCCA ROAS : " + tRoas + "x\n\n" +
+      "\u23EA <b>Hier</b>\n     \uD83D\uDCB8 Depense : " + formatMoney(ySpend) + " \u20ac\n     \uD83D\uDCB0 " + caLabel + " : " + formatMoney(yShopCA) + " \u20ac\n     \uD83D\uDCCA ROAS : " + yRoas + "x";
     var adsDetailButtons = [
       [{ text: "\u2B05\uFE0F Retour", callback_data: "adsp:" + adsPlat }],
       [{ text: "\u2B05\uFE0F Menu Ads", callback_data: "ads_menu" }]
