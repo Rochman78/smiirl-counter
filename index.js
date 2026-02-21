@@ -410,7 +410,7 @@ async function fetchAmzAdsSpendForProfile(accessToken, profile, dateStr) {
       if (!reportId) continue;
 
       var downloadUrl = null;
-      for (var p = 0; p < 12; p++) {
+      for (var p = 0; p < 6; p++) {
         await sleep(5000);
         var statusResp = await fetch(profile.endpoint + "/reporting/reports/" + reportId, {
           headers: {
@@ -465,6 +465,9 @@ async function fetchAllAmzAdsSpend() {
         results.push({ date: today, platform: "amazon", shop: profile.country, spend: spendToday });
         console.log("AMZ Ads " + profile.country + " (" + today + "): " + spendToday);
       }
+      // Update cache after each country so data is available immediately
+      cachedAmzAdsSpend = results.slice();
+      lastAmzAdsFetch = Date.now();
     } catch (e) { console.error("AMZ Ads " + profile.country + " error: " + e.message); }
   }
 
