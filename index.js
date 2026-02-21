@@ -336,14 +336,155 @@ async function getSkuNames() {
 var cachedAdsRows = [];
 var lastAdsFetch = 0;
 
+// ============================================================
+// AMAZON ADS API
+// ============================================================
+
+var AMZ_ADS_PROFILES = [
+  { profileId: "4431575093569404", country: "AMZ FR", endpoint: "https://advertising-api-eu.amazon.com" },
+  { profileId: "2677311899396330", country: "AMZ DE", endpoint: "https://advertising-api-eu.amazon.com" },
+  { profileId: "106574421746698", country: "AMZ IT", endpoint: "https://advertising-api-eu.amazon.com" },
+  { profileId: "2272924267067837", country: "AMZ ES", endpoint: "https://advertising-api-eu.amazon.com" },
+  { profileId: "3080727678543205", country: "AMZ UK", endpoint: "https://advertising-api-eu.amazon.com" },
+  { profileId: "2021778061762746", country: "AMZ NL", endpoint: "https://advertising-api-eu.amazon.com" },
+  { profileId: "182690087547494", country: "AMZ BE", endpoint: "https://advertising-api-eu.amazon.com" },
+  { profileId: "854508534654303", country: "AMZ SE", endpoint: "https://advertising-api-eu.amazon.com" },
+  { profileId: "3393000200356209", country: "AMZ PL", endpoint: "https://advertising-api-eu.amazon.com" }
+];
+
+var cachedAmzAdsSpend = [];
+var lastAmzAdsFetch = 0;
+
+async function getAmzAdsAccessToken() {
+  var clientId = process.env.AMZ_ADS_CLIENT_ID;
+  var clientSecret = process.env.AMZ_ADS_CLIENT_SECRET;
+  var refreshToken = process.env.AMZ_ADS_REFRESH_TOKEN;
+  if (!clientId || !clientSecret || !refreshToken) return null;
+  try {
+    var response = await fetch("https://api.amazon.com/auth/o2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "grant_type=refresh_token&refresh_token=" + encodeURIComponent(refreshToken) + "&client_id=" + encodeURIComponent(clientId) + "&client_secret=" + encodeURIComponent(clientSecret)
+    });
+    if (!response.ok) { console.error("AMZ Ads token error: " + response.status); return null; }
+    var data = await response.json();
+    return data.access_token;
+  } catch (e) { console.error("AMZ Ads token error: " + e.message); return null; }
+}
+
+async function fetchAmzAdsSpendForProfile(accessToken, profile, dateStr) {
+  var clientId = process.env.AMZ_ADS_CLIENT_ID;
+  var adProducts = ["SPONSORED_PRODUCTS", "SPONSORED_BRANDS", "SPONSORED_DISPLAY"];
+  var reportTypeIds = { "SPONSORED_PRODUCTS": "spCampaigns", "SPONSORED_BRANDS": "sbCampaigns", "SPONSORED_DISPLAY": "sdCampaigns" };
+  var totalSpend = 0;
+  var zlib = require("zlib");
+
+  for (var a = 0; a < adProducts.length; a++) {
+    try {
+      var payload = {
+        name: adProducts[a] + " spend",
+        startDate: dateStr,
+        endDate: dateStr,
+        configuration: {
+          adProduct: adProducts[a],
+          groupBy: ["campaign"],
+          columns: ["spend"],
+          reportTypeId: reportTypeIds[adProducts[a]],
+          timeUnit: "SUMMARY",
+          format: "GZIP_JSON"
+        }
+      };
+      var createResp = await fetch(profile.endpoint + "/reporting/reports", {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + accessToken,
+          "Amazon-Advertising-API-ClientId": clientId,
+          "Amazon-Advertising-API-Scope": profile.profileId,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+      if (!createResp.ok) continue;
+      var createData = await createResp.json();
+      var reportId = createData.reportId;
+      if (!reportId) continue;
+
+      var downloadUrl = null;
+      for (var p = 0; p < 12; p++) {
+        await sleep(5000);
+        var statusResp = await fetch(profile.endpoint + "/reporting/reports/" + reportId, {
+          headers: {
+            "Authorization": "Bearer " + accessToken,
+            "Amazon-Advertising-API-ClientId": clientId,
+            "Amazon-Advertising-API-Scope": profile.profileId
+          }
+        });
+        if (!statusResp.ok) break;
+        var statusData = await statusResp.json();
+        if (statusData.status === "COMPLETED") { downloadUrl = statusData.url; break; }
+        if (statusData.status === "FAILURE") break;
+      }
+      if (!downloadUrl) continue;
+
+      var dlResp = await fetch(downloadUrl);
+      if (!dlResp.ok) continue;
+      var buffer = await dlResp.arrayBuffer();
+      var decompressed = zlib.gunzipSync(Buffer.from(buffer));
+      var rows = JSON.parse(decompressed.toString());
+      for (var r = 0; r < rows.length; r++) {
+        if (rows[r].spend) totalSpend += parseFloat(rows[r].spend);
+      }
+    } catch (e) { console.error("AMZ Ads " + adProducts[a] + " " + profile.country + ": " + e.message); }
+  }
+  return Math.round(totalSpend * 100) / 100;
+}
+
+async function fetchAllAmzAdsSpend() {
+  var clientId = process.env.AMZ_ADS_CLIENT_ID;
+  if (!clientId) return;
+  console.log("Fetching Amazon Ads spend...");
+  var accessToken = await getAmzAdsAccessToken();
+  if (!accessToken) { console.log("No AMZ Ads access token"); return; }
+
+  var yesterday = getParisDate();
+  yesterday.setDate(yesterday.getDate() - 1);
+  var dateStr = getParisDateStr(yesterday);
+  var today = getTodayKey();
+  var results = [];
+
+  for (var i = 0; i < AMZ_ADS_PROFILES.length; i++) {
+    var profile = AMZ_ADS_PROFILES[i];
+    try {
+      var spend = await fetchAmzAdsSpendForProfile(accessToken, profile, dateStr);
+      if (spend > 0) {
+        results.push({ date: dateStr, platform: "amazon", shop: profile.country, spend: spend });
+        console.log("AMZ Ads " + profile.country + " (" + dateStr + "): " + spend);
+      }
+      var spendToday = await fetchAmzAdsSpendForProfile(accessToken, profile, today);
+      if (spendToday > 0) {
+        results.push({ date: today, platform: "amazon", shop: profile.country, spend: spendToday });
+        console.log("AMZ Ads " + profile.country + " (" + today + "): " + spendToday);
+      }
+    } catch (e) { console.error("AMZ Ads " + profile.country + " error: " + e.message); }
+  }
+
+  cachedAmzAdsSpend = results;
+  lastAmzAdsFetch = Date.now();
+  console.log("Amazon Ads spend fetched: " + results.length + " entries");
+}
+
+// ============================================================
+// ADS SHEET + AMAZON ADS COMBINED
+// ============================================================
+
 async function getAdsRows() {
   var now = Date.now();
-  if (now - lastAdsFetch < 10 * 60 * 1000 && cachedAdsRows.length > 0) { return cachedAdsRows; }
+  if (now - lastAdsFetch < 10 * 60 * 1000 && cachedAdsRows.length > 0) { return cachedAdsRows.concat(cachedAmzAdsSpend); }
   var url = process.env.ADS_SHEET_URL;
-  if (!url) return cachedAdsRows;
+  if (!url) return cachedAdsRows.concat(cachedAmzAdsSpend);
   try {
     var response = await fetch(url);
-    if (!response.ok) return cachedAdsRows;
+    if (!response.ok) return cachedAdsRows.concat(cachedAmzAdsSpend);
     var text = await response.text();
     var lines = text.trim().split("\n");
     var sep = lines[0].indexOf(";") >= 0 ? ";" : ",";
@@ -360,10 +501,12 @@ async function getAdsRows() {
     }
     cachedAdsRows = rows;
     lastAdsFetch = now;
-    return cachedAdsRows;
+    // Combine with Amazon Ads API data
+    var combined = rows.concat(cachedAmzAdsSpend);
+    return combined;
   } catch (error) {
     console.error("Erreur Ads sheet: " + error.message);
-    return cachedAdsRows;
+    return cachedAdsRows.concat(cachedAmzAdsSpend);
   }
 }
 
@@ -1089,6 +1232,10 @@ async function checkRecords(amount) {
 }
 
 setInterval(checkNewOrders, 60 * 1000);
+
+// Fetch Amazon Ads spend at startup and then every 6 hours
+setTimeout(function() { fetchAllAmzAdsSpend(); }, 30000); // 30s after boot
+setInterval(function() { fetchAllAmzAdsSpend(); }, 6 * 60 * 60 * 1000); // every 6h
 
 // ============================================================
 // RAPPORTS AUTOMATIQUES
