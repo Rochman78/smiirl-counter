@@ -1193,7 +1193,7 @@ app.post("/webhook", async function (req, res) {
     var tpLines = [];
     for (var tpm = 0; tpm < tpN; tpm++) {
       var tpMedal = tpm < 3 ? tpMedals[tpm] : (tpm + 1) + ".";
-      var tpDisplayName = tpList[tpm].name.substring(0, 50);
+      var tpDisplayName = tpList[tpm].name;
       if (tpList[tpm].variant) { tpDisplayName += " (" + tpList[tpm].variant.substring(0, 20) + ")"; }
       tpLines.push(tpMedal + " <b>" + tpDisplayName + "</b>\n     \uD83D\uDCB0 " + formatMoney(tpList[tpm].revenue) + " \u20ac \u00b7 " + tpList[tpm].qty + " vendus");
     }
