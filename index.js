@@ -1270,27 +1270,11 @@ app.post("/webhook", async function (req, res) {
 
   // Commande /heures
   if (req.body && req.body.message && req.body.message.text && req.body.message.text.trim() === "/heures") {
-    var hStats = resetDailyStatsIfNeeded();
-    var hMax = 0;
-    for (var hi = 0; hi < 24; hi++) { if (hStats._hourlyRevenue[hi] > hMax) hMax = hStats._hourlyRevenue[hi]; }
-    if (hMax === 0) { await sendTelegram("\u23F0 <b>Ventes par heure</b>\n\nAucune vente aujourd'hui.", null); return; }
-    var hLines = [];
-    for (var hj = 0; hj < 24; hj++) {
-      var hRev = hStats._hourlyRevenue[hj];
-      var hOrd = hStats._hourlyOrders[hj];
-      if (hRev > 0 || hj <= getParisHour()) {
-        var hBarLen = hMax > 0 ? Math.round((hRev / hMax) * 8) : 0;
-        var hBar = "";
-        for (var hb = 0; hb < hBarLen; hb++) hBar += "\u2588";
-        for (var he = hBarLen; he < 8; he++) hBar += "\u2591";
-        var hLabel = String(hj).padStart(2, "0") + "h";
-        hLines.push(hLabel + " " + hBar + " " + formatMoney(hRev) + "\u20ac (" + hOrd + ")");
-      }
-    }
-    var hBestHour = 0; var hBestRev = 0;
-    for (var hk = 0; hk < 24; hk++) { if (hStats._hourlyRevenue[hk] > hBestRev) { hBestRev = hStats._hourlyRevenue[hk]; hBestHour = hk; } }
-    var hMsg = "\u23F0 <b>Ventes par heure (aujourd'hui)</b>\n\n<code>" + hLines.join("\n") + "</code>\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n\uD83C\uDFC6 <b>Meilleure heure : " + String(hBestHour).padStart(2, "0") + "h (" + formatMoney(hBestRev) + " \u20ac)</b>";
-    await sendTelegram(hMsg, getMainButtons());
+    var hrButtons = [
+      [{ text: "\uD83D\uDCC5 Aujourd'hui", callback_data: "hr:d" }, { text: "\uD83D\uDCC5 7 jours", callback_data: "hr:7" }],
+      [{ text: "\uD83D\uDCC6 Ce mois", callback_data: "hr:m" }, { text: "\uD83D\uDCCA Cette annee", callback_data: "hr:a" }]
+    ];
+    await sendTelegram("\u23F0 <b>Ventes par heure</b>\n\nChoisissez la periode :", hrButtons);
     return;
   }
 
@@ -1723,6 +1707,128 @@ app.post("/webhook", async function (req, res) {
       [{ text: "\u2B05\uFE0F Retour", callback_data: "main_menu" }]
     ];
     await editMessage(chatId, messageId, sMsg, semReturnButtons);
+    return;
+  }
+
+  // ============================================================
+  // HEURES CALLBACKS
+  // ============================================================
+
+  // hr:period -> show shop selection
+  if (data.indexOf("hr:") === 0 && data.indexOf("hrs:") !== 0) {
+    var hrPeriod = data.substring(3);
+    var hrShopButtons = [];
+    var hrShops = getShops();
+    var hrRow = [];
+    for (var hri = 0; hri < hrShops.length; hri++) {
+      hrRow.push({ text: hrShops[hri].name, callback_data: "hrs:" + hrPeriod + ":" + hrShops[hri].name });
+      if (hrRow.length === 3) { hrShopButtons.push(hrRow); hrRow = []; }
+    }
+    if (hrRow.length > 0) { hrShopButtons.push(hrRow); hrRow = []; }
+    hrShopButtons.push([{ text: "\uD83D\uDCE6 Amazon EU", callback_data: "hrs:" + hrPeriod + ":ALL_AMAZON" }]);
+    hrShopButtons.push([{ text: "\uD83C\uDF0D Toutes", callback_data: "hrs:" + hrPeriod + ":ALL" }]);
+    hrShopButtons.push([{ text: "\u2B05\uFE0F Retour", callback_data: "hr_menu" }]);
+    var hrPeriodLabels = { "d": "Aujourd'hui", "7": "7 jours", "m": "Ce mois", "a": "Cette annee" };
+    await editMessage(chatId, messageId, "\u23F0 <b>Ventes par heure - " + (hrPeriodLabels[hrPeriod] || hrPeriod) + "</b>\n\nChoisissez une boutique :", hrShopButtons);
+    return;
+  }
+
+  if (data === "hr_menu") {
+    var hrMenuButtons = [
+      [{ text: "\uD83D\uDCC5 Aujourd'hui", callback_data: "hr:d" }, { text: "\uD83D\uDCC5 7 jours", callback_data: "hr:7" }],
+      [{ text: "\uD83D\uDCC6 Ce mois", callback_data: "hr:m" }, { text: "\uD83D\uDCCA Cette annee", callback_data: "hr:a" }],
+      [{ text: "\u2B05\uFE0F Retour", callback_data: "main_menu" }]
+    ];
+    await editMessage(chatId, messageId, "\u23F0 <b>Ventes par heure</b>\n\nChoisissez la periode :", hrMenuButtons);
+    return;
+  }
+
+  // hrs:period:shop -> compute and display
+  if (data.indexOf("hrs:") === 0) {
+    var hrsParts = data.split(":");
+    var hrsPeriod = hrsParts[1];
+    var hrsShop = hrsParts.slice(2).join(":");
+    var hrsPeriodLabels = { "d": "aujourd'hui", "7": "7 jours", "m": "ce mois", "a": "cette annee" };
+    var hrsLabel = (hrsPeriodLabels[hrsPeriod] || hrsPeriod) + " - " + (hrsShop === "ALL" ? "Toutes" : hrsShop);
+    await editMessage(chatId, messageId, "\u23F3 <b>Chargement...</b>", null);
+
+    // Determine date range
+    var hrsParis = getParisDate();
+    var hrsStart;
+    if (hrsPeriod === "d") { hrsStart = new Date(hrsParis.getFullYear(), hrsParis.getMonth(), hrsParis.getDate()); }
+    else if (hrsPeriod === "7") { hrsStart = new Date(hrsParis.getFullYear(), hrsParis.getMonth(), hrsParis.getDate() - 6); }
+    else if (hrsPeriod === "m") { hrsStart = new Date(hrsParis.getFullYear(), hrsParis.getMonth(), 1); }
+    else { hrsStart = new Date(hrsParis.getFullYear(), 0, 1); }
+
+    var hrsHourly = new Array(24).fill(0);
+    var hrsHourlyOrd = new Array(24).fill(0);
+    var hrsTotalRev = 0; var hrsTotalOrd = 0;
+
+    // Shopify
+    if (hrsShop !== "ALL_AMAZON") {
+      var hrsShops = getShops();
+      for (var hsi = 0; hsi < hrsShops.length; hsi++) {
+        if (hrsShop !== "ALL" && hrsShops[hsi].name !== hrsShop) continue;
+        var hrsOrders = await getShopifyOrders(hrsShops[hsi], hrsStart.toISOString());
+        for (var hsj = 0; hsj < hrsOrders.length; hsj++) {
+          var hsCreated = new Date(hrsOrders[hsj].created_at);
+          var hsParisTime = new Date(hsCreated.toLocaleString("en-US", { timeZone: "Europe/Paris" }));
+          var hsHour = hsParisTime.getHours();
+          var hsAmount = parseFloat(hrsOrders[hsj].total_price || 0);
+          hrsHourly[hsHour] += hsAmount;
+          hrsHourlyOrd[hsHour] += 1;
+          hrsTotalRev += hsAmount;
+          hrsTotalOrd += 1;
+        }
+      }
+    }
+
+    // Amazon
+    if (hrsShop === "ALL" || hrsShop === "ALL_AMAZON") {
+      var hrsAmazon = getAmazonAccounts();
+      for (var hak = 0; hak < hrsAmazon.length; hak++) {
+        var hrsAmz = await getAmazonOrdersCached(hrsAmazon[hak], hrsStart.toISOString(), "heures_amz_" + hrsPeriod, 10 * 60 * 1000);
+        for (var hal = 0; hal < hrsAmz.length; hal++) {
+          var haDate = new Date(hrsAmz[hal].PurchaseDate);
+          var haParisTime = new Date(haDate.toLocaleString("en-US", { timeZone: "Europe/Paris" }));
+          var haHour = haParisTime.getHours();
+          var haAmount = (hrsAmz[hal].OrderTotal && hrsAmz[hal].OrderTotal.Amount) ? parseFloat(hrsAmz[hal].OrderTotal.Amount) : 0;
+          hrsHourly[haHour] += haAmount;
+          hrsHourlyOrd[haHour] += 1;
+          hrsTotalRev += haAmount;
+          hrsTotalOrd += 1;
+        }
+      }
+    }
+
+    // Build chart
+    var hrsMax = 0;
+    for (var hm = 0; hm < 24; hm++) { if (hrsHourly[hm] > hrsMax) hrsMax = hrsHourly[hm]; }
+    if (hrsMax === 0) {
+      var hrsReturnEmpty = [[{ text: "\u2B05\uFE0F Retour", callback_data: "hr:" + hrsPeriod }]];
+      await editMessage(chatId, messageId, "\u23F0 <b>Ventes par heure (" + hrsLabel + ")</b>\n\nAucune vente sur cette periode.", hrsReturnEmpty);
+      return;
+    }
+    var hrsLines = [];
+    for (var hn = 0; hn < 24; hn++) {
+      var hnRev = hrsHourly[hn];
+      var hnOrd = hrsHourlyOrd[hn];
+      var hnBarLen = hrsMax > 0 ? Math.round((hnRev / hrsMax) * 8) : 0;
+      var hnBar = "";
+      for (var hb = 0; hb < hnBarLen; hb++) hnBar += "\u2588";
+      for (var he = hnBarLen; he < 8; he++) hnBar += "\u2591";
+      hrsLines.push(String(hn).padStart(2, "0") + "h " + hnBar + " " + formatMoney(hnRev) + "\u20ac (" + hnOrd + ")");
+    }
+    var hrsBestHour = 0; var hrsBestRev = 0;
+    for (var hp = 0; hp < 24; hp++) { if (hrsHourly[hp] > hrsBestRev) { hrsBestRev = hrsHourly[hp]; hrsBestHour = hp; } }
+    var hrsAvgPerHour = hrsTotalRev > 0 ? Math.round(hrsTotalRev / 24) : 0;
+    var hrsMsg = "\u23F0 <b>Ventes par heure (" + hrsLabel + ")</b>\n\n<code>" + hrsLines.join("\n") + "</code>" +
+      "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n\uD83C\uDFC6 <b>Meilleure heure : " + String(hrsBestHour).padStart(2, "0") + "h (" + formatMoney(hrsBestRev) + " \u20ac)</b>\n\uD83D\uDCB0 <b>Total : " + formatMoney(hrsTotalRev) + " \u20ac (" + hrsTotalOrd + " cmd)</b>\n\uD83D\uDCCA <b>Moyenne : " + formatMoney(hrsAvgPerHour) + " \u20ac/heure</b>";
+    var hrsReturnButtons = [
+      [{ text: "\u2B05\uFE0F Changer boutique", callback_data: "hr:" + hrsPeriod }, { text: "\u2B05\uFE0F Changer periode", callback_data: "hr_menu" }],
+      [{ text: "\u2B05\uFE0F Menu principal", callback_data: "main_menu" }]
+    ];
+    await editMessage(chatId, messageId, hrsMsg, hrsReturnButtons);
     return;
   }
 
