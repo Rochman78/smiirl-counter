@@ -474,6 +474,7 @@ async function fetchAllAmzAdsSpend() {
             format: "GZIP_JSON"
           }
         };
+        console.log("  [" + profile.country + "] Creating report for " + dates[d] + " (id: " + profile.profileId + ")");
         var createResp = await fetch(profile.endpoint + "/reporting/reports", {
           method: "POST",
           headers: {
@@ -506,11 +507,11 @@ async function fetchAllAmzAdsSpend() {
     }
   }
 
-  console.log("  " + reportJobs.length + " reports queued, waiting 2 minutes...");
-  await sleep(120000); // Wait 2 minutes for reports to generate
+  console.log("  " + reportJobs.length + " reports queued, waiting 3 minutes...");
+  await sleep(180000); // Wait 3 minutes for reports to generate
 
   // STEP 2: Check all reports and download
-  for (var attempt = 0; attempt < 3; attempt++) {
+  for (var attempt = 0; attempt < 5; attempt++) {
     var remaining = [];
     for (var j = 0; j < reportJobs.length; j++) {
       var job = reportJobs[j];
@@ -522,8 +523,13 @@ async function fetchAllAmzAdsSpend() {
             "Amazon-Advertising-API-Scope": job.profileId
           }
         });
-        if (!statusResp.ok) { remaining.push(job); continue; }
+        if (!statusResp.ok) {
+          console.log("  [" + job.country + "] Status check HTTP " + statusResp.status);
+          remaining.push(job);
+          continue;
+        }
         var statusData = await statusResp.json();
+        console.log("  [" + job.country + "] " + job.date + " => " + statusData.status + (statusData.url ? " (URL ready)" : ""));
         if (statusData.status === "COMPLETED" && statusData.url) {
           var dlResp = await fetch(statusData.url);
           if (dlResp.ok) {
@@ -556,9 +562,9 @@ async function fetchAllAmzAdsSpend() {
     }
 
     if (remaining.length === 0) break;
-    console.log("  " + remaining.length + " reports still pending, waiting 1 more minute...");
+    console.log("  " + remaining.length + " reports still pending, waiting 2 more minutes...");
     reportJobs = remaining;
-    await sleep(60000); // Wait 1 more minute
+    await sleep(120000); // Wait 2 more minutes
   }
 
   if (results.length > 0) {
