@@ -1,6 +1,65 @@
 const express = require("express");
+const fs = require("fs");
 const app = express();
 app.use(express.json());
+
+// ============================================================
+// PERSISTENT CACHE (/data/cache.json survives deployments)
+// ============================================================
+
+var CACHE_FILE = "/data/cache.json";
+var saveTimeout = null;
+
+function saveCache() {
+  // Debounce: save max every 5 seconds
+  if (saveTimeout) return;
+  saveTimeout = setTimeout(function() {
+    saveTimeout = null;
+    try {
+      var data = {
+        knownOrderIds: knownOrderIds,
+        dailyShopStats: dailyShopStats,
+        cachedAmzAdsSpend: cachedAmzAdsSpend,
+        lastAmzAdsFetch: lastAmzAdsFetch,
+        cachedNumber: cachedNumber,
+        lastFetch: lastFetch,
+        records: records,
+        firstRun: false,
+        objectifAlertSent: objectifAlertSent,
+        milestonesOrdersSent: milestonesOrdersSent,
+        milestonesRevenueSent: milestonesRevenueSent,
+        savedAt: Date.now()
+      };
+      fs.writeFileSync(CACHE_FILE, JSON.stringify(data));
+    } catch (e) { console.error("Cache save error: " + e.message); }
+  }, 5000);
+}
+
+function loadCache() {
+  try {
+    if (!fs.existsSync(CACHE_FILE)) { console.log("No cache file, starting fresh"); return; }
+    var raw = fs.readFileSync(CACHE_FILE, "utf8");
+    var data = JSON.parse(raw);
+    var age = Date.now() - (data.savedAt || 0);
+    console.log("Cache loaded (" + Math.round(age / 1000) + "s old)");
+
+    if (data.knownOrderIds) knownOrderIds = data.knownOrderIds;
+    if (data.dailyShopStats) dailyShopStats = data.dailyShopStats;
+    if (data.cachedAmzAdsSpend) cachedAmzAdsSpend = data.cachedAmzAdsSpend;
+    if (data.lastAmzAdsFetch) lastAmzAdsFetch = data.lastAmzAdsFetch;
+    if (data.cachedNumber) cachedNumber = data.cachedNumber;
+    if (data.lastFetch) lastFetch = data.lastFetch;
+    if (data.records) records = data.records;
+    if (data.objectifAlertSent) objectifAlertSent = data.objectifAlertSent;
+    if (data.milestonesOrdersSent) milestonesOrdersSent = data.milestonesOrdersSent;
+    if (data.milestonesRevenueSent) milestonesRevenueSent = data.milestonesRevenueSent;
+    // If cache is less than 1h old, skip first scan notifications
+    if (age < 60 * 60 * 1000) {
+      firstRun = false;
+      console.log("Cache recent, skipping first scan");
+    }
+  } catch (e) { console.error("Cache load error: " + e.message); }
+}
 
 // ============================================================
 // UTILS
@@ -572,6 +631,7 @@ async function fetchAllAmzAdsSpend() {
     lastAmzAdsFetch = Date.now();
   }
   console.log("Amazon Ads spend fetched: " + results.length + " entries");
+  saveCache();
 }
 
 // ============================================================
@@ -1161,6 +1221,7 @@ function addToShopStats(shopName, amount) {
   else if (amount < 200) stats._priceRanges.r100_200 += 1;
   else if (amount < 500) stats._priceRanges.r200_500 += 1;
   else stats._priceRanges.r500plus += 1;
+  saveCache();
 }
 
 function buildTopBoutiques() {
@@ -1309,6 +1370,7 @@ async function checkNewOrders() {
       records.bestOrderAmount = stats._biggestOrder;
       records.bestOrderDate = getTodayKey();
     }
+    saveCache();
   }
 }
 
@@ -1351,6 +1413,7 @@ async function checkRecords(amount) {
     var msg = "\uD83C\uDFC6 <b>NOUVEAU RECORD !</b>\n\n\uD83D\uDCB0 Plus grosse commande : <b>" + formatMoney(amount) + " \u20ac</b>\n\nLe record est battu ! \uD83D\uDE80";
     await sendTelegram(msg, null);
   }
+  saveCache();
 }
 
 setInterval(checkNewOrders, 60 * 1000);
@@ -2531,6 +2594,7 @@ async function getTotalRevenue() {
   cachedNumber = Math.round(total);
   lastFetch = now;
   console.log("TOTAL GLOBAL: " + cachedNumber + " EUR");
+  saveCache();
   return cachedNumber;
 }
 
@@ -2569,5 +2633,6 @@ app.listen(PORT, function () {
   console.log("Serveur SMIIRL demarre sur le port " + PORT);
   console.log(shops.length + " boutique(s) Shopify");
   console.log(amazonAccounts.length + " compte(s) Amazon");
+  loadCache();
   setTimeout(checkNewOrders, 30000);
 });
