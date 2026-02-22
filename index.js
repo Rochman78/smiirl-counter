@@ -1150,24 +1150,32 @@ async function getSameDayLastWeekStats() {
 // BOUTONS
 // ============================================================
 
+function getDashboardButtons() {
+  return [
+    [{ text: "\uD83D\uDCCB Menu", callback_data: "open_menu" }]
+  ];
+}
+
 function getMainButtons() {
   return [
-    [
-      { text: "\uD83D\uDCB8 Ventes", callback_data: "menu_ventes" },
-      { text: "\uD83C\uDFC6 Top Produits", callback_data: "tp_menu" },
-      { text: "\uD83D\uDCE3 Ads", callback_data: "ads_menu" }
-    ],
-    [
-      { text: "\u23F0 Heures", callback_data: "hr_menu" },
-      { text: "\uD83D\uDCC8 Courbe", callback_data: "btn_courbe" },
-      { text: "\uD83D\uDCCA Compare", callback_data: "btn_compare" }
-    ],
-    [
-      { text: "\uD83C\uDFAF Obj. mois", callback_data: "btn_objectifmois" },
-      { text: "\uD83C\uDFC6 Records", callback_data: "btn_records" },
-      { text: "\uD83E\uDD21 Rire", callback_data: "btn_rire" }
-    ]
+    [{ text: "\uD83D\uDCCB Menu", callback_data: "open_menu" }, { text: "\uD83C\uDFE0 Dashboard", callback_data: "main_menu" }]
   ];
+}
+
+function getMenuButtons() {
+  return [
+    [{ text: "\uD83D\uDCB0 Ventes par boutique", callback_data: "menu_ventes" }],
+    [{ text: "\uD83D\uDCCA Comparer avec hier", callback_data: "btn_compare" }, { text: "\uD83D\uDCC8 Courbe 7 jours", callback_data: "btn_courbe" }],
+    [{ text: "\u23F0 Ventes par heure", callback_data: "hr_menu" }, { text: "\uD83C\uDFC6 Top produits", callback_data: "tp_menu" }],
+    [{ text: "\uD83D\uDCE3 Publicites (Ads)", callback_data: "ads_menu" }],
+    [{ text: "\uD83C\uDFAF Objectif du mois", callback_data: "btn_objectifmois" }, { text: "\uD83C\uDFC6 Records", callback_data: "btn_records" }],
+    [{ text: "\uD83E\uDD21 Blague", callback_data: "btn_rire" }],
+    [{ text: "\uD83C\uDFE0 Dashboard", callback_data: "main_menu" }]
+  ];
+}
+
+function homeButton() {
+  return [{ text: "\uD83C\uDFE0", callback_data: "main_menu" }];
 }
 
 function getShopButtons() {
@@ -1181,7 +1189,7 @@ function getShopButtons() {
   if (row.length > 0) { buttons.push(row); row = []; }
   buttons.push([{ text: "\uD83D\uDCE6 Amazon EU", callback_data: "amz_menu" }]);
   buttons.push([{ text: "\uD83C\uDF0D ALL", callback_data: "s:ALL" }]);
-  buttons.push([{ text: "\u2B05\uFE0F Retour", callback_data: "main_menu" }]);
+  buttons.push([{ text: "\u2B05\uFE0F Retour", callback_data: "open_menu" }, homeButton()[0]]);
   return buttons;
 }
 
@@ -1196,7 +1204,7 @@ function getAmazonCountryButtons() {
   }
   if (row.length > 0) buttons.push(row);
   buttons.push([{ text: "\uD83D\uDCE6 ALL AMAZON", callback_data: "s:ALL_AMAZON" }]);
-  buttons.push([{ text: "\u2B05\uFE0F Retour", callback_data: "menu_ventes" }]);
+  buttons.push([{ text: "\u2B05\uFE0F Retour", callback_data: "menu_ventes" }, homeButton()[0]]);
   return buttons;
 }
 
@@ -1204,7 +1212,7 @@ function getPeriodButtons(shopName) {
   return [
     [{ text: "\uD83D\uDCC5 Aujourd'hui", callback_data: "p:" + shopName + ":d" }, { text: "\u23EA Hier", callback_data: "p:" + shopName + ":h" }],
     [{ text: "\uD83D\uDCC6 Ce mois", callback_data: "p:" + shopName + ":m" }, { text: "\uD83D\uDCCA Cette annee", callback_data: "p:" + shopName + ":a" }],
-    [{ text: "\u2B05\uFE0F Retour", callback_data: "menu_ventes" }]
+    [{ text: "\u2B05\uFE0F Retour", callback_data: "menu_ventes" }, homeButton()[0]]
   ];
 }
 
@@ -1212,7 +1220,7 @@ function getAmzPeriodButtons(marketplaceId) {
   return [
     [{ text: "\uD83D\uDCC5 Aujourd'hui", callback_data: "ap:" + marketplaceId + ":d" }, { text: "\u23EA Hier", callback_data: "ap:" + marketplaceId + ":h" }],
     [{ text: "\uD83D\uDCC6 Ce mois", callback_data: "ap:" + marketplaceId + ":m" }, { text: "\uD83D\uDCCA Cette annee", callback_data: "ap:" + marketplaceId + ":a" }],
-    [{ text: "\u2B05\uFE0F Retour pays", callback_data: "amz_menu" }, { text: "\u2B05\uFE0F Retour", callback_data: "menu_ventes" }]
+    [{ text: "\u2B05\uFE0F Retour pays", callback_data: "amz_menu" }, homeButton()[0]]
   ];
 }
 
@@ -1906,10 +1914,25 @@ app.post("/webhook", async function (req, res) {
     return;
   }
 
+  // Commande /start ou /menu
+  if (req.body && req.body.message && req.body.message.text && (req.body.message.text.trim() === "/start" || req.body.message.text.trim() === "/menu")) {
+    var menuText = "\uD83D\uDCCB <b>Menu principal</b>\n\n" +
+      "\uD83D\uDCB0 <b>Ventes</b> \u2014 CA par boutique et pays\n" +
+      "\uD83D\uDCCA <b>Comparer</b> \u2014 Aujourd'hui vs hier\n" +
+      "\uD83D\uDCC8 <b>Courbe</b> \u2014 Evolution sur 7 jours\n" +
+      "\u23F0 <b>Heures</b> \u2014 Repartition horaire des ventes\n" +
+      "\uD83C\uDFC6 <b>Top produits</b> \u2014 Best-sellers du jour/mois\n" +
+      "\uD83D\uDCE3 <b>Ads</b> \u2014 Depenses et ROAS pub\n" +
+      "\uD83C\uDFAF <b>Objectif</b> \u2014 Suivi de l'objectif mensuel\n" +
+      "\uD83C\uDFC6 <b>Records</b> \u2014 Vos meilleurs scores";
+    await sendTelegram(menuText, getMenuButtons());
+    return;
+  }
+
   // Commande /help
   if (req.body && req.body.message && req.body.message.text && req.body.message.text.indexOf("/help") === 0) {
-    var helpMsg = "\uD83D\uDCCB <b>Commandes disponibles</b>\n\n\uD83D\uDCCA /stats - Recap du jour + boutons\n\uD83C\uDFC6 /top - Classement boutiques (jour)\n\uD83C\uDFC6 /topmois - Classement boutiques (mois)\n\uD83C\uDFC6 /topproduits - Top produits\n\uD83D\uDCC8 /compare - Aujourd'hui vs hier vs semaine derniere\n\uD83D\uDCC6 /mois - Ce mois vs mois dernier\n\uD83D\uDCC5 /semaine - CA par jour de la semaine\n\uD83D\uDCE3 /ads - Depenses Ads / ROAS\n\u23F0 /heures - Ventes par heure + heatmap\n\uD83C\uDFAF /objectifmois - Objectif mensuel + ROAS\n\uD83C\uDFC6 /records - Records de vente\n\uD83D\uDCB0 /tranches - Repartition par prix\n\uD83D\uDCC8 /courbe - Courbe des 7 derniers jours\n\u2753 /help - Cette aide\n\n\u23F0 <b>Automatique :</b>\n\u2600\uFE0F 8h - Rapport du matin + ROAS\n\uD83C\uDF19 20h - Rapport du soir + ROAS\n\uD83D\uDCC5 Lundi 8h - Rapport hebdo\n\uD83C\uDFAF Alerte objectif atteint + streak\n\uD83D\uDD25 Alerte grosse commande (+1 000 \u20ac)\n\uD83C\uDF89 Milestones (commandes & CA)\n\uD83D\uDD2E Prediction fin de journee\n\uD83C\uDFC6 Alerte nouveau record";
-    await sendTelegram(helpMsg, null);
+    var helpMsg = "\uD83D\uDCCB <b>Commandes disponibles</b>\n\n\uD83D\uDCCA /stats - Dashboard + recap du jour\n\uD83D\uDCCB /menu - Menu principal avec tous les boutons\n\uD83C\uDFC6 /top - Classement boutiques (jour)\n\uD83C\uDFC6 /topmois - Classement boutiques (mois)\n\uD83C\uDFC6 /topproduits - Top produits\n\uD83D\uDCC8 /compare - Aujourd'hui vs hier vs semaine derniere\n\uD83D\uDCC6 /mois - Ce mois vs mois dernier\n\uD83D\uDCC5 /semaine - CA par jour de la semaine\n\uD83D\uDCE3 /ads - Depenses Ads / ROAS\n\u23F0 /heures - Ventes par heure + heatmap\n\uD83C\uDFAF /objectifmois - Objectif mensuel + ROAS\n\uD83C\uDFC6 /records - Records de vente\n\uD83D\uDCB0 /tranches - Repartition par prix\n\uD83D\uDCC8 /courbe - Courbe des 7 derniers jours\n\u2753 /help - Cette aide\n\n\u23F0 <b>Automatique :</b>\n\u2600\uFE0F 8h - Rapport du matin + ROAS\n\uD83C\uDF19 20h - Rapport du soir + ROAS\n\uD83D\uDCC5 Lundi 8h - Rapport hebdo\n\uD83C\uDFAF Alerte objectif atteint + streak + GIF\n\uD83D\uDD25 Alerte grosse commande + GIF\n\uD83C\uDF89 Milestones (commandes & CA) + GIF\n\uD83D\uDD2E Prediction fin de journee\n\uD83C\uDFC6 Alerte nouveau record + GIF\n\uD83D\uDCCA Points 12h/15h/18h vs hier";
+    await sendTelegram(helpMsg, getMainButtons());
     return;
   }
 
@@ -1918,7 +1941,7 @@ app.post("/webhook", async function (req, res) {
     var stats = resetDailyStatsIfNeeded();
     var recap = await buildRecapMessage();
     var statsMsg = "\uD83D\uDCCA <b>Dashboard</b>" + recap;
-    await sendTelegram(statsMsg, getMainButtons());
+    await sendTelegram(statsMsg, getDashboardButtons());
     return;
   }
 
@@ -1937,7 +1960,21 @@ app.post("/webhook", async function (req, res) {
 
   if (data === "main_menu") {
     var mainRecap = await buildRecapMessage();
-    await editMessage(chatId, messageId, "\uD83D\uDCCA <b>Dashboard</b>" + mainRecap, getMainButtons());
+    await editMessage(chatId, messageId, "\uD83D\uDCCA <b>Dashboard</b>" + mainRecap, getDashboardButtons());
+    return;
+  }
+
+  if (data === "open_menu") {
+    var menuText = "\uD83D\uDCCB <b>Menu principal</b>\n\n" +
+      "\uD83D\uDCB0 <b>Ventes</b> \u2014 CA par boutique et pays\n" +
+      "\uD83D\uDCCA <b>Comparer</b> \u2014 Aujourd'hui vs hier\n" +
+      "\uD83D\uDCC8 <b>Courbe</b> \u2014 Evolution sur 7 jours\n" +
+      "\u23F0 <b>Heures</b> \u2014 Repartition horaire des ventes\n" +
+      "\uD83C\uDFC6 <b>Top produits</b> \u2014 Best-sellers du jour/mois\n" +
+      "\uD83D\uDCE3 <b>Ads</b> \u2014 Depenses et ROAS pub\n" +
+      "\uD83C\uDFAF <b>Objectif</b> \u2014 Suivi de l'objectif mensuel\n" +
+      "\uD83C\uDFC6 <b>Records</b> \u2014 Vos meilleurs scores";
+    await editMessage(chatId, messageId, menuText, getMenuButtons());
     return;
   }
 
@@ -2107,7 +2144,7 @@ app.post("/webhook", async function (req, res) {
     }
     if (adsRow2.length > 0) adsButtons2.push(adsRow2);
     adsButtons2.push([{ text: "\uD83D\uDCCA Tout", callback_data: "adsp:all" }]);
-    adsButtons2.push([{ text: "\u2B05\uFE0F Retour", callback_data: "main_menu" }]);
+    adsButtons2.push([{ text: "\u2B05\uFE0F Retour", callback_data: "open_menu" }, homeButton()[0]]);
     await editMessage(chatId, messageId, "\uD83D\uDCE3 <b>Ads</b>\n\nChoisissez une plateforme :", adsButtons2);
     return;
   }
@@ -2144,7 +2181,7 @@ app.post("/webhook", async function (req, res) {
       var allMsg = "\uD83D\uDCE3 <b>Ads - Toutes plateformes</b>\n\n" + platLines.join("\n\n") +
         "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n\uD83D\uDCB8 <b>Total aujourd'hui : " + formatMoney(todayTotal) + " \u20ac</b>\n\uD83D\uDCCA <b>ROAS global : " + roasToday + "x</b>\n\n\uD83D\uDCB8 <b>Total hier : " + formatMoney(yTotal) + " \u20ac</b>\n\uD83D\uDCCA <b>ROAS hier : " + roasY + "x</b>";
       var allAdsReturn = [
-        [{ text: "\u2B05\uFE0F Retour", callback_data: "ads_menu" }]
+        [{ text: "\u2B05\uFE0F Retour", callback_data: "ads_menu" }, homeButton()[0]]
       ];
       await editMessage(chatId, messageId, allMsg, allAdsReturn);
       return;
@@ -2160,7 +2197,7 @@ app.post("/webhook", async function (req, res) {
     }
     if (shopRow.length > 0) shopButtons.push(shopRow);
     shopButtons.push([{ text: "\uD83D\uDCCA Toutes", callback_data: "adss:" + adsPlatform + ":ALL" }]);
-    shopButtons.push([{ text: "\u2B05\uFE0F Retour", callback_data: "ads_menu" }]);
+    shopButtons.push([{ text: "\u2B05\uFE0F Retour", callback_data: "ads_menu" }, homeButton()[0]]);
     await editMessage(chatId, messageId, getPlatformLabel(adsPlatform) + "\n\nChoisissez une boutique :", shopButtons);
     return;
   }
@@ -2200,7 +2237,7 @@ app.post("/webhook", async function (req, res) {
       "\u23EA <b>Hier</b>\n     \uD83D\uDCB8 Depense : " + formatMoney(ySpend) + " \u20ac\n     \uD83D\uDCB0 " + caLabel + " : " + formatMoney(yShopCA) + " \u20ac\n     \uD83D\uDCCA ROAS : " + yRoas + "x";
     var adsDetailButtons = [
       [{ text: "\u2B05\uFE0F Retour", callback_data: "adsp:" + adsPlat }],
-      [{ text: "\u2B05\uFE0F Menu Ads", callback_data: "ads_menu" }]
+      [{ text: "\u2B05\uFE0F Menu Ads", callback_data: "ads_menu" }, homeButton()[0]]
     ];
     await editMessage(chatId, messageId, adsDetailMsg, adsDetailButtons);
     return;
@@ -2214,7 +2251,7 @@ app.post("/webhook", async function (req, res) {
     var tpMenuButtons = [
       [{ text: "\uD83D\uDCC5 Aujourd'hui", callback_data: "tp:d" }, { text: "\uD83D\uDCC5 7 jours", callback_data: "tp:7" }],
       [{ text: "\uD83D\uDCC6 Ce mois", callback_data: "tp:m" }, { text: "\uD83D\uDCCA Cette annee", callback_data: "tp:a" }],
-      [{ text: "\uD83C\uDF0D Tout", callback_data: "tp:all" }, { text: "\u2B05\uFE0F Retour", callback_data: "main_menu" }]
+      [{ text: "\uD83C\uDF0D Tout", callback_data: "tp:all" }, { text: "\u2B05\uFE0F Retour", callback_data: "open_menu" }, homeButton()[0]]
     ];
     await editMessage(chatId, messageId, "\uD83C\uDFC6 <b>Top produits</b>\n\nChoisissez la periode :", tpMenuButtons);
     return;
@@ -2281,7 +2318,7 @@ app.post("/webhook", async function (req, res) {
     var tpReturnButtons = [
       [{ text: "\uD83D\uDCC5 Aujourd'hui", callback_data: "tp:d" }, { text: "\uD83D\uDCC5 7 jours", callback_data: "tp:7" }],
       [{ text: "\uD83D\uDCC6 Ce mois", callback_data: "tp:m" }, { text: "\uD83D\uDCCA Cette annee", callback_data: "tp:a" }],
-      [{ text: "\uD83C\uDF0D Tout", callback_data: "tp:all" }, { text: "\u2B05\uFE0F Retour", callback_data: "main_menu" }]
+      [{ text: "\uD83C\uDF0D Tout", callback_data: "tp:all" }, { text: "\u2B05\uFE0F Retour", callback_data: "open_menu" }, homeButton()[0]]
     ];
     await editMessage(chatId, messageId, tpMsg, tpReturnButtons);
     return;
@@ -2345,7 +2382,7 @@ app.post("/webhook", async function (req, res) {
     var semReturnButtons = [
       [{ text: "\uD83D\uDCC5 7 jours", callback_data: "sem:7" }, { text: "\uD83D\uDCC6 30 jours", callback_data: "sem:30" }],
       [{ text: "\uD83D\uDCCA Cette annee", callback_data: "sem:365" }, { text: "\uD83C\uDF0D Tout", callback_data: "sem:all" }],
-      [{ text: "\u2B05\uFE0F Retour", callback_data: "main_menu" }]
+      [{ text: "\u2B05\uFE0F Retour", callback_data: "open_menu" }, homeButton()[0]]
     ];
     await editMessage(chatId, messageId, sMsg, semReturnButtons);
     return;
@@ -2368,7 +2405,7 @@ app.post("/webhook", async function (req, res) {
     if (hrRow.length > 0) { hrShopButtons.push(hrRow); hrRow = []; }
     hrShopButtons.push([{ text: "\uD83D\uDCE6 Amazon EU", callback_data: "hrs:" + hrPeriod + ":ALL_AMAZON" }]);
     hrShopButtons.push([{ text: "\uD83C\uDF0D Toutes", callback_data: "hrs:" + hrPeriod + ":ALL" }]);
-    hrShopButtons.push([{ text: "\u2B05\uFE0F Retour", callback_data: "hr_menu" }]);
+    hrShopButtons.push([{ text: "\u2B05\uFE0F Retour", callback_data: "hr_menu" }, homeButton()[0]]);
     var hrPeriodLabels = { "d": "Aujourd'hui", "7": "7 jours", "m": "Ce mois", "a": "Cette annee" };
     await editMessage(chatId, messageId, "\u23F0 <b>Ventes par heure - " + (hrPeriodLabels[hrPeriod] || hrPeriod) + "</b>\n\nChoisissez une boutique :", hrShopButtons);
     return;
@@ -2379,7 +2416,7 @@ app.post("/webhook", async function (req, res) {
       [{ text: "\uD83D\uDCC5 Aujourd'hui", callback_data: "hr:d" }, { text: "\uD83D\uDCC5 7 jours", callback_data: "hr:7" }],
       [{ text: "\uD83D\uDCC6 Ce mois", callback_data: "hr:m" }, { text: "\uD83D\uDCCA Cette annee", callback_data: "hr:a" }],
       [{ text: "\uD83D\uDDFA Heatmap heures x jours", callback_data: "hm_menu" }],
-      [{ text: "\u2B05\uFE0F Retour", callback_data: "main_menu" }]
+      [{ text: "\u2B05\uFE0F Retour", callback_data: "open_menu" }, homeButton()[0]]
     ];
     await editMessage(chatId, messageId, "\u23F0 <b>Ventes par heure</b>\n\nChoisissez la periode :", hrMenuButtons);
     return;
@@ -2468,7 +2505,7 @@ app.post("/webhook", async function (req, res) {
       "\n\n\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\n\uD83C\uDFC6 <b>Meilleure heure : " + String(hrsBestHour).padStart(2, "0") + "h (" + formatMoney(hrsBestRev) + " \u20ac)</b>\n\uD83D\uDCB0 <b>Total : " + formatMoney(hrsTotalRev) + " \u20ac (" + hrsTotalOrd + " cmd)</b>\n\uD83D\uDCCA <b>Moyenne : " + formatMoney(hrsAvgPerHour) + " \u20ac/heure</b>";
     var hrsReturnButtons = [
       [{ text: "\u2B05\uFE0F Changer boutique", callback_data: "hr:" + hrsPeriod }, { text: "\u2B05\uFE0F Changer periode", callback_data: "hr_menu" }],
-      [{ text: "\u2B05\uFE0F Menu principal", callback_data: "main_menu" }]
+      [homeButton()[0]]
     ];
     await editMessage(chatId, messageId, hrsMsg, hrsReturnButtons);
     return;
@@ -2482,7 +2519,7 @@ app.post("/webhook", async function (req, res) {
     var hmButtons = [
       [{ text: "\uD83D\uDCC5 7 jours", callback_data: "hm:7" }, { text: "\uD83D\uDCC6 30 jours", callback_data: "hm:30" }],
       [{ text: "\uD83D\uDCCA Cette annee", callback_data: "hm:365" }, { text: "\uD83C\uDF0D Tout", callback_data: "hm:all" }],
-      [{ text: "\u2B05\uFE0F Retour", callback_data: "hr_menu" }]
+      [{ text: "\u2B05\uFE0F Retour", callback_data: "hr_menu" }, homeButton()[0]]
     ];
     await editMessage(chatId, messageId, "\uD83D\uDDFA <b>Heatmap heures x jours</b>\n\nChoisissez la periode :", hmButtons);
     return;
@@ -2618,7 +2655,7 @@ app.post("/webhook", async function (req, res) {
       "\n\n\uD83C\uDFC6 <b>Top 5 creneaux :</b>\n" + hmTop5.join("\n");
     var hmReturnButtons = [
       [{ text: "\uD83D\uDCC5 7j", callback_data: "hm:7" }, { text: "\uD83D\uDCC6 30j", callback_data: "hm:30" }, { text: "\uD83D\uDCCA Annee", callback_data: "hm:365" }],
-      [{ text: "\u2B05\uFE0F Retour", callback_data: "hr_menu" }]
+      [{ text: "\u2B05\uFE0F Retour", callback_data: "hr_menu" }, homeButton()[0]]
     ];
     await editMessage(chatId, messageId, hmMsg, hmReturnButtons);
     return;
