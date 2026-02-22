@@ -761,35 +761,50 @@ async function sendGif(gifUrl, caption) {
   try {
     var body = { chat_id: TELEGRAM_CHAT_ID, animation: gifUrl, parse_mode: "HTML" };
     if (caption) body.caption = caption;
-    await fetch("https://api.telegram.org/bot" + TELEGRAM_TOKEN + "/sendAnimation", {
+    var resp = await fetch("https://api.telegram.org/bot" + TELEGRAM_TOKEN + "/sendAnimation", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
     });
-  } catch (error) { console.error("Erreur GIF: " + error.message); }
+    var result = await resp.json();
+    if (!result.ok) {
+      console.log("GIF failed (" + gifUrl + "), sending text only");
+      await sendTelegram(caption, null);
+    }
+  } catch (error) {
+    console.error("Erreur GIF: " + error.message);
+    try { await sendTelegram(caption, null); } catch(e) {}
+  }
 }
 
-// GIF collections
+// GIF collections - Wolf of Wall Street + Money (Telegram-compatible MP4)
 var GIFS_OBJECTIF = [
-  "https://media.giphy.com/media/3o6fJ1BM7R2EBRDnxK/giphy.gif",
-  "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",
-  "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
-  "https://media.giphy.com/media/3ohzAu2U1tOafteBa0/giphy.gif",
-  "https://media.giphy.com/media/26BRBKqUiq586bRVm/giphy.gif"
+  "https://media.giphy.com/media/9mZoOe2CWoeha/giphy.mp4",
+  "https://media.giphy.com/media/CUFBdjF6Vfl98uHWP5/giphy.mp4",
+  "https://media.giphy.com/media/d2bOZ4zvrpTGM/giphy.mp4",
+  "https://media.giphy.com/media/119pLwyWg8ScTK/giphy.mp4",
+  "https://media.giphy.com/media/n5sdh00OGVpgA/giphy.mp4",
+  "https://media.giphy.com/media/M8x6Lk2QFmTu0/giphy.mp4"
 ];
 var GIFS_GROSSE_COMMANDE = [
-  "https://media.giphy.com/media/l0HlQ7LRalQqdWfao/giphy.gif",
-  "https://media.giphy.com/media/3o6fIUZTTDl0IDjbZS/giphy.gif",
-  "https://media.giphy.com/media/67ThRZlYBvibtdF9JH/giphy.gif",
-  "https://media.giphy.com/media/xUPGcMzwkOY01nj4KA/giphy.gif"
+  "https://media.giphy.com/media/PtdOBG0BD9Vvi/giphy.mp4",
+  "https://media.giphy.com/media/Lw39ENuDr0SdO/giphy.mp4",
+  "https://media.giphy.com/media/7LgKUsZiSjcRO/giphy.mp4",
+  "https://media.giphy.com/media/i33719vyOjNYI/giphy.mp4",
+  "https://media.giphy.com/media/SaX384PjtDl2U/giphy.mp4",
+  "https://media.giphy.com/media/v18xOnxDRt8aI/giphy.mp4"
 ];
 var GIFS_RECORD = [
-  "https://media.giphy.com/media/26BRzozg4TCBDIsxG/giphy.gif",
-  "https://media.giphy.com/media/3o7abGQa0aRJUurpII/giphy.gif",
-  "https://media.giphy.com/media/d31w24grGBGKaVmg/giphy.gif"
+  "https://media.giphy.com/media/CwM9k8RChLqqQ/giphy.mp4",
+  "https://media.giphy.com/media/1N7wpCVjQJatq/giphy.mp4",
+  "https://media.giphy.com/media/wZwRL2iqmV5S0/giphy.mp4",
+  "https://media.giphy.com/media/8ymvg6pl1Lzy0/giphy.mp4",
+  "https://media.giphy.com/media/FvQ31b1qHdZKvDM5dH/giphy.mp4"
 ];
 var GIFS_MILESTONE = [
-  "https://media.giphy.com/media/26u4lOMA8JKSnL9Uk/giphy.gif",
-  "https://media.giphy.com/media/3o752fXbwYFnGErBW8/giphy.gif",
-  "https://media.giphy.com/media/26FPOogenQv5eNMlO/giphy.gif"
+  "https://media.giphy.com/media/3oFzmqENRBkRTRfLcA/giphy.mp4",
+  "https://media.giphy.com/media/3oriNNkHV8Xa02MjBu/giphy.mp4",
+  "https://media.giphy.com/media/yzGFE3sov4TeQtT3Na/giphy.mp4",
+  "https://media.giphy.com/media/9mZoOe2CWoeha/giphy.mp4",
+  "https://media.giphy.com/media/PtdOBG0BD9Vvi/giphy.mp4"
 ];
 
 function randomGif(list) {
