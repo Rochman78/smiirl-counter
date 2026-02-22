@@ -447,33 +447,118 @@ async function fetchAllAmzAdsSpend() {
   var accessToken = await getAmzAdsAccessToken();
   if (!accessToken) { console.log("No AMZ Ads access token"); return; }
 
+  var zlib = require("zlib");
   var yesterday = getParisDate();
   yesterday.setDate(yesterday.getDate() - 1);
   var dateStr = getParisDateStr(yesterday);
   var today = getTodayKey();
   var results = [];
 
-  // Sequential: one country at a time with pause between each
+  // STEP 1: Create ALL reports at once (no waiting)
+  var reportJobs = [];
   for (var i = 0; i < AMZ_ADS_PROFILES.length; i++) {
     var profile = AMZ_ADS_PROFILES[i];
-    // Yesterday
-    var spend = await fetchAmzAdsSpendForProfile(accessToken, profile, dateStr);
-    if (spend > 0) {
-      results.push({ date: dateStr, platform: "amazon", shop: profile.country, spend: spend });
+    var dates = [dateStr, today];
+    for (var d = 0; d < dates.length; d++) {
+      try {
+        var payload = {
+          name: "SP " + profile.country,
+          startDate: dates[d],
+          endDate: dates[d],
+          configuration: {
+            adProduct: "SPONSORED_PRODUCTS",
+            groupBy: ["campaign"],
+            columns: ["spend"],
+            reportTypeId: "spCampaigns",
+            timeUnit: "SUMMARY",
+            format: "GZIP_JSON"
+          }
+        };
+        var createResp = await fetch(profile.endpoint + "/reporting/reports", {
+          method: "POST",
+          headers: {
+            "Authorization": "Bearer " + accessToken,
+            "Amazon-Advertising-API-ClientId": clientId,
+            "Amazon-Advertising-API-Scope": profile.profileId,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(payload)
+        });
+        if (createResp.status === 429) {
+          console.log("  [" + profile.country + "] Throttled, waiting 10s...");
+          await sleep(10000);
+          continue;
+        }
+        if (!createResp.ok) continue;
+        var createData = await createResp.json();
+        if (createData.reportId) {
+          reportJobs.push({
+            reportId: createData.reportId,
+            country: profile.country,
+            date: dates[d],
+            profileId: profile.profileId,
+            endpoint: profile.endpoint
+          });
+          console.log("  [" + profile.country + "] Report queued for " + dates[d]);
+        }
+        await sleep(500); // Small pause between creates
+      } catch (e) { console.error("  [" + profile.country + "] Create error: " + e.message); }
     }
-    await sleep(2000);
-    // Today
-    var spendToday = await fetchAmzAdsSpendForProfile(accessToken, profile, today);
-    if (spendToday > 0) {
-      results.push({ date: today, platform: "amazon", shop: profile.country, spend: spendToday });
+  }
+
+  console.log("  " + reportJobs.length + " reports queued, waiting 2 minutes...");
+  await sleep(120000); // Wait 2 minutes for reports to generate
+
+  // STEP 2: Check all reports and download
+  for (var attempt = 0; attempt < 3; attempt++) {
+    var remaining = [];
+    for (var j = 0; j < reportJobs.length; j++) {
+      var job = reportJobs[j];
+      try {
+        var statusResp = await fetch(job.endpoint + "/reporting/reports/" + job.reportId, {
+          headers: {
+            "Authorization": "Bearer " + accessToken,
+            "Amazon-Advertising-API-ClientId": clientId,
+            "Amazon-Advertising-API-Scope": job.profileId
+          }
+        });
+        if (!statusResp.ok) { remaining.push(job); continue; }
+        var statusData = await statusResp.json();
+        if (statusData.status === "COMPLETED" && statusData.url) {
+          var dlResp = await fetch(statusData.url);
+          if (dlResp.ok) {
+            var buffer = await dlResp.arrayBuffer();
+            var decompressed = zlib.gunzipSync(Buffer.from(buffer));
+            var rows = JSON.parse(decompressed.toString());
+            var total = 0;
+            for (var r = 0; r < rows.length; r++) {
+              if (rows[r].spend) total += parseFloat(rows[r].spend);
+            }
+            total = Math.round(total * 100) / 100;
+            if (total > 0) {
+              results.push({ date: job.date, platform: "amazon", shop: job.country, spend: total });
+              console.log("  [" + job.country + "] " + job.date + " = " + total + " EUR");
+            }
+          }
+        } else if (statusData.status === "FAILURE") {
+          console.log("  [" + job.country + "] Report FAILED");
+        } else {
+          remaining.push(job); // Still PENDING
+        }
+        await sleep(300);
+      } catch (e) { remaining.push(job); }
     }
-    // Update cache after each country
+
+    // Update cache with what we have so far
     if (results.length > 0) {
       cachedAmzAdsSpend = results.slice();
       lastAmzAdsFetch = Date.now();
     }
-    // Pause between countries
-    if (i < AMZ_ADS_PROFILES.length - 1) await sleep(3000);
+
+    if (remaining.length === 0) break;
+    console.log("  " + remaining.length + " reports still pending, waiting 1 more minute...");
+    reportJobs = remaining;
+    await sleep(60000); // Wait 1 more minute
   }
 
   if (results.length > 0) {
@@ -831,7 +916,7 @@ async function getStatsForShop(shopName, period, marketplaceId) {
     return { revenue: revenue, orders: orderCount };
   }
   // Check if it's an Amazon country shop (e.g., "🇫🇷 AMZ FR")
-  if (shopName.indexOf("AMZ ") >= 0) {
+  if (shopName && shopName.indexOf("AMZ ") >= 0) {
     var mpId = null;
     var mpKeys = Object.keys(MARKETPLACE_MAP);
     for (var mk = 0; mk < mpKeys.length; mk++) {
