@@ -244,7 +244,7 @@ async function checkMilestones(stats) {
       if (ORDER_MILESTONES[i2] <= highestOrder) { milestonesOrdersSent[ORDER_MILESTONES[i2]] = true; }
     }
     var msg = "\uD83C\uDF89 <b>MILESTONE !</b>\n\n\uD83D\uDCE6 <b>" + highestOrder + "eme commande du jour !</b>\n\uD83D\uDCB0 CA : " + formatMoney(stats._totalRevenue) + " \u20ac\n\nOn continue ! \uD83D\uDE80";
-    await sendTelegram(msg, null);
+    await sendGif(randomGif(GIFS_MILESTONE), msg);
   }
   var highestRevenue = 0;
   for (var j = 0; j < REVENUE_MILESTONES.length; j++) {
@@ -258,7 +258,7 @@ async function checkMilestones(stats) {
       if (REVENUE_MILESTONES[j2] <= highestRevenue) { milestonesRevenueSent[REVENUE_MILESTONES[j2]] = true; }
     }
     var rMsg = "\uD83C\uDF89 <b>MILESTONE !</b>\n\n\uD83D\uDCB0 <b>" + formatMoney(highestRevenue) + " \u20ac atteints aujourd'hui !</b>\n\uD83D\uDCE6 " + stats._totalOrders + " commandes\n\nEnorme ! \uD83D\uDCAA";
-    await sendTelegram(rMsg, null);
+    await sendGif(randomGif(GIFS_MILESTONE), rMsg);
   }
 }
 
@@ -754,6 +754,46 @@ async function sendTelegram(message, buttons) {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
     });
   } catch (error) { console.error("Erreur Telegram: " + error.message); }
+}
+
+async function sendGif(gifUrl, caption) {
+  if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) return;
+  try {
+    var body = { chat_id: TELEGRAM_CHAT_ID, animation: gifUrl, parse_mode: "HTML" };
+    if (caption) body.caption = caption;
+    await fetch("https://api.telegram.org/bot" + TELEGRAM_TOKEN + "/sendAnimation", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+    });
+  } catch (error) { console.error("Erreur GIF: " + error.message); }
+}
+
+// GIF collections
+var GIFS_OBJECTIF = [
+  "https://media.giphy.com/media/3o6fJ1BM7R2EBRDnxK/giphy.gif",
+  "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",
+  "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
+  "https://media.giphy.com/media/3ohzAu2U1tOafteBa0/giphy.gif",
+  "https://media.giphy.com/media/26BRBKqUiq586bRVm/giphy.gif"
+];
+var GIFS_GROSSE_COMMANDE = [
+  "https://media.giphy.com/media/l0HlQ7LRalQqdWfao/giphy.gif",
+  "https://media.giphy.com/media/3o6fIUZTTDl0IDjbZS/giphy.gif",
+  "https://media.giphy.com/media/67ThRZlYBvibtdF9JH/giphy.gif",
+  "https://media.giphy.com/media/xUPGcMzwkOY01nj4KA/giphy.gif"
+];
+var GIFS_RECORD = [
+  "https://media.giphy.com/media/26BRzozg4TCBDIsxG/giphy.gif",
+  "https://media.giphy.com/media/3o7abGQa0aRJUurpII/giphy.gif",
+  "https://media.giphy.com/media/d31w24grGBGKaVmg/giphy.gif"
+];
+var GIFS_MILESTONE = [
+  "https://media.giphy.com/media/26u4lOMA8JKSnL9Uk/giphy.gif",
+  "https://media.giphy.com/media/3o752fXbwYFnGErBW8/giphy.gif",
+  "https://media.giphy.com/media/26FPOogenQv5eNMlO/giphy.gif"
+];
+
+function randomGif(list) {
+  return list[Math.floor(Math.random() * list.length)];
 }
 
 async function answerCallback(callbackId) {
@@ -1306,7 +1346,11 @@ async function checkNewOrders() {
             var bigLabel = amount >= grosseCommandeSeuil ? "\n\uD83D\uDC8E <b>GROSSE COMMANDE !</b>" : "";
             var recap = await buildRecapMessage();
             var msg = emoji + " <b>Nouvelle commande sur " + shop.name + " !</b>" + bigLabel + "\n\uD83D\uDCB0 Montant : " + formatMoney(amount) + " \u20ac\n\n" + getMotivation() + recap;
-            await sendTelegram(msg, getMainButtons());
+            if (amount >= grosseCommandeSeuil) {
+              await sendGif(randomGif(GIFS_GROSSE_COMMANDE), msg);
+            } else {
+              await sendTelegram(msg, getMainButtons());
+            }
             await checkObjectifAtteint();
             await checkMilestones(resetDailyStatsIfNeeded());
             await checkRecords(amount);
@@ -1335,7 +1379,11 @@ async function checkNewOrders() {
             var amzBigLabel = amzAmount >= grosseCommandeSeuil ? "\n\uD83D\uDC8E <b>GROSSE COMMANDE !</b>" : "";
             var amzRecap = await buildRecapMessage();
             var amzMsg = amzEmoji + " <b>Nouvelle commande sur " + amzLabel + " !</b>" + amzBigLabel + "\n\uD83D\uDCB0 Montant : " + formatMoney(amzAmount) + " \u20ac\n\n" + getMotivation() + amzRecap;
-            await sendTelegram(amzMsg, getMainButtons());
+            if (amzAmount >= grosseCommandeSeuil) {
+              await sendGif(randomGif(GIFS_GROSSE_COMMANDE), amzMsg);
+            } else {
+              await sendTelegram(amzMsg, getMainButtons());
+            }
             await checkObjectifAtteint();
             await checkMilestones(resetDailyStatsIfNeeded());
             await checkRecords(amzAmount);
@@ -1384,7 +1432,7 @@ async function checkObjectifAtteint() {
     var bar = buildProgressBar(stats._totalRevenue, objectif);
     var streakLine = streakDays > 1 ? "\n\uD83D\uDD25 <b>" + streakDays + " jours consecutifs !</b>" : "";
     var msg = "\uD83C\uDFAF\uD83C\uDF89 <b>OBJECTIF DU JOUR ATTEINT !</b>\n\n\uD83D\uDCB0 " + formatMoney(stats._totalRevenue) + " \u20ac / " + formatMoney(objectif) + " \u20ac\n" + bar + streakLine + "\n\nBravo ! \uD83D\uDE80";
-    await sendTelegram(msg, null);
+    await sendGif(randomGif(GIFS_OBJECTIF), msg);
   }
 }
 
@@ -1411,7 +1459,7 @@ async function checkRecords(amount) {
   // Alert for biggest order record
   if (newRecord && amount >= 200) {
     var msg = "\uD83C\uDFC6 <b>NOUVEAU RECORD !</b>\n\n\uD83D\uDCB0 Plus grosse commande : <b>" + formatMoney(amount) + " \u20ac</b>\n\nLe record est battu ! \uD83D\uDE80";
-    await sendTelegram(msg, null);
+    await sendGif(randomGif(GIFS_RECORD), msg);
   }
   saveCache();
 }
@@ -1535,6 +1583,38 @@ setInterval(async function () {
   if (day === 1 && hour === 8 && minute === 1) { weeklyReportSent = false; }
   if (day !== 1) { weeklyReportSent = false; }
 }, 30 * 1000);
+
+// ============================================================
+// ALERTES INTELLIGENTES
+// ============================================================
+
+var lastCompareAlertHour = -1;
+
+setInterval(async function() {
+  var hour = getParisHour();
+  if (hour < 9 || hour > 21) return; // Only during business hours
+
+  var stats = resetDailyStatsIfNeeded();
+
+  // Alert: comparison with yesterday (every 3 hours: 12h, 15h, 18h)
+  if ((hour === 12 || hour === 15 || hour === 18) && hour !== lastCompareAlertHour) {
+    lastCompareAlertHour = hour;
+    try {
+      // Get yesterday's stats up to same hour
+      var yStats = await getStatsForAll("h");
+      if (yStats.revenue > 0 && stats._totalRevenue > 0) {
+        var diff = ((stats._totalRevenue - yStats.revenue) / yStats.revenue * 100).toFixed(0);
+        var emoji = diff >= 0 ? "\uD83D\uDCC8" : "\uD83D\uDCC9";
+        var label = diff >= 0 ? "+" + diff + "% au-dessus" : diff + "% en-dessous";
+        var msg = emoji + " <b>Point " + hour + "h</b>\n\n" +
+          "\uD83D\uDCB0 Aujourd'hui : <b>" + formatMoney(stats._totalRevenue) + " \u20ac</b> (" + stats._totalOrders + " cmd)\n" +
+          "\u23EA Hier total : <b>" + formatMoney(yStats.revenue) + " \u20ac</b> (" + yStats.orders + " cmd)\n\n" +
+          emoji + " " + label + " d'hier";
+        await sendTelegram(msg, null);
+      }
+    } catch (e) { console.error("Alerte compare error: " + e.message); }
+  }
+}, 5 * 60 * 1000); // Check every 5 min
 
 // ============================================================
 // WEBHOOK TELEGRAM
